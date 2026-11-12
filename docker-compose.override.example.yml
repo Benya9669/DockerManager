@@ -1,0 +1,7 @@
+# Server-specific settings. Copy to docker-compose.override.yml (ignored by git),
+# docker compose merges it automatically, so `git pull` never conflicts.
+services:
+  dockermanager:
+    volumes:
+      # Folders with existing compose stacks: mount at the SAME path
+      - /home/strgadmin:/home/strgadmin
