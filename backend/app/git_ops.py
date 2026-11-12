@@ -151,3 +151,20 @@ def reset_steps(p: Project) -> list[tuple[str, list[str]]]:
         ("git fetch origin", [*git_args(p), "fetch", "--prune", "origin"]),
         ("git reset --hard @{u}", [*git_args(p), "reset", "--hard", "@{u}"]),
     ]
+
+
+def incoming(p: Project, compose_files: list[str]) -> dict:
+    """What a pull would bring: commits, file stats and the diff of compose files (after fetch)."""
+    fetch(p)
+    try:
+        run(p, "rev-parse", "--abbrev-ref", "@{u}")
+    except GitError:
+        return {"upstream": None, "commits": [], "stat": "", "compose_diff": "", "files_changed": 0}
+    out = run(p, "log", "HEAD..@{u}", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI")
+    commits = [dict(zip(["hash", "short", "subject", "author", "date"], line.split("\x1f")))
+               for line in out.splitlines() if line.count("\x1f") == 4]
+    stat = run(p, "diff", "--stat", "HEAD...@{u}") if commits else ""
+    compose_diff = run(p, "diff", "HEAD...@{u}", "--", *compose_files) if commits and compose_files else ""
+    names = run(p, "diff", "--name-only", "HEAD...@{u}").splitlines() if commits else []
+    return {"upstream": True, "commits": commits, "stat": stat, "compose_diff": compose_diff[:200_000],
+            "files_changed": len(names), "files": names[:200]}

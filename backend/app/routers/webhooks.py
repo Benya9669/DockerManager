@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import compose, git_ops
+from .. import deploy, git_ops
 from ..db import get_db
 from ..deps import audit
 from ..jobs import BusyError, runner
@@ -46,7 +46,8 @@ async def webhook(slug: str, request: Request, db: Session = Depends(get_db)):
     if ref and p.branch and ref != f"refs/heads/{p.branch}":
         return {"skipped": True, "reason": f"ref {ref} does not match branch {p.branch}"}
     try:
-        jid = runner.start(action="webhook.deploy", steps=compose.action_steps(p, "deploy"), cwd=p.path,
+        steps, on_failure = deploy.deploy_steps(p, "webhook")
+        jid = runner.start(action="webhook.deploy", steps=steps, cwd=p.path, on_failure=on_failure,
                            project_id=p.id, username="webhook", env=git_ops.git_env(p))
     except BusyError as e:
         raise HTTPException(409, str(e))

@@ -75,6 +75,7 @@ export function ProjectPage() {
           ["logs", "Логи"],
           ...(can("operator") ? ([["env", "Переменные (.env)"], ["files", "Файлы"]] as [string, string][]) : []),
           ...(p.source === "git" ? ([["git", "Git"]] as [string, string][]) : []),
+          ["deploys", "Деплои"],
           ["jobs", "История"],
           ...(can("admin") ? ([["settings", "Настройки"]] as [string, string][]) : []),
         ]}
@@ -85,6 +86,7 @@ export function ProjectPage() {
         {tab === "env" && <EnvTab p={p} onChange={proj.reload} />}
         {tab === "files" && <FilesTab p={p} />}
         {tab === "git" && <GitTab p={p} startJob={startJob} refreshKey={refreshKey} />}
+        {tab === "deploys" && <DeploymentsTab p={p} open={startJob} refreshKey={refreshKey} />}
         {tab === "jobs" && <ProjectJobs p={p} open={startJob} refreshKey={refreshKey} />}
         {tab === "settings" && <SettingsTab p={p} onSaved={proj.reload} startJob={startJob} />}
       </div>
@@ -94,12 +96,17 @@ export function ProjectPage() {
 
 function ProjectToolbar({ p, runAction }: { p: any; runAction: (a: string, body?: any, t?: string) => Promise<void> }) {
   const [noCache, setNoCache] = useState(false);
+  const [preview, setPreview] = useState(false);
   const [showConfig, setShowConfig] = useState<string | null>(null);
   const dis = p.busy;
   return (
     <div className="toolbar">
-      <ActionButton className="btn primary" disabled={dis} title="git pull → pull образов → build → up -d"
-        onClick={() => runAction("deploy", { no_cache: noCache }, "Деплой")}>🚀 Деплой</ActionButton>
+      <button className="btn primary" disabled={dis} title="предпросмотр изменений → деплой с проверкой здоровья и автооткатом"
+        onClick={() => setPreview(true)}>🚀 Деплой</button>
+      {preview && (
+        <DeployPreview p={p} noCache={noCache} onClose={() => setPreview(false)}
+          onDeploy={async () => { setPreview(false); await runAction("deploy", { no_cache: noCache }, "Деплой"); }} />
+      )}
       <ActionButton disabled={dis} onClick={() => runAction("up", {}, "Запуск (up -d)")}>▶ Up</ActionButton>
       <div className="btn-group">
         <ActionButton disabled={dis} title="docker compose build --pull" onClick={() => runAction("build", { no_cache: noCache }, "Сборка")}>🔨 Build</ActionButton>
@@ -198,6 +205,111 @@ function ServicesTab({ p, runAction, refreshKey }: { p: any; runAction: any; ref
                   </td>
                 </tr>
               ));
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ---------- Deploy preview ----------
+function DeployPreview({ p, noCache, onClose, onDeploy }: { p: any; noCache: boolean; onClose: () => void; onDeploy: () => Promise<void> }) {
+  const pv = useFetch<any>(() => api(`/projects/${p.id}/deploy-preview`), [p.id]);
+  const d = pv.data;
+  const g = d?.git;
+  return (
+    <Modal title={`Деплой: ${p.name}`} onClose={onClose} wide>
+      <div className="stack">
+        <Loading error={pv.error} loading={pv.loading && !d} />
+        {d && (
+          <>
+            {g?.error && <div className="alert err">git: {g.error}</div>}
+            {g && !g.error && (
+              g.commits.length ? (
+                <div className="stack-sm">
+                  <b>Придут коммиты ({g.commits.length}), изменено файлов: {g.files_changed}</b>
+                  <table className="table">
+                    <tbody>
+                      {g.commits.map((c: any) => (
+                        <tr key={c.hash}><td className="mono">{c.short}</td><td>{c.subject}</td><td className="muted small">{c.author}, {fmtAgo(c.date)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {g.stat && <pre className="small">{g.stat}</pre>}
+                  {g.compose_diff && (
+                    <>
+                      <b>Изменения compose-файлов</b>
+                      <Editor value={g.compose_diff} readOnly filename="changes.diff" height="30vh" />
+                    </>
+                  )}
+                </div>
+              ) : <div className="hint">Новых коммитов нет: будут обновлены образы и пересозданы изменившиеся контейнеры.</div>
+            )}
+            {d.source !== "git" && <div className="hint">Проект без git: деплой = pull образов + build + up.</div>}
+            {d.local_changes?.length > 0 && (
+              <div className="alert err">
+                Локальные изменения в репозитории ({d.local_changes.length}). Pull может не пройти, если они конфликтуют:
+                <pre className="small">{d.local_changes.join("\n")}</pre>
+              </div>
+            )}
+            {d.config_ok === false && <div className="alert err"><b>compose config с ошибкой:</b><pre className="small">{d.config_error}</pre></div>}
+            <div className="hint">
+              После деплоя панель ждёт до {p.health_timeout ?? 90} с, пока контейнеры станут здоровыми.{" "}
+              {p.auto_rollback ? "Если не станут — автоматически откатит к текущей версии." : "Автооткат выключен в настройках проекта."}
+              {noCache && " Сборка без кэша."}
+            </div>
+          </>
+        )}
+        <div className="row end">
+          <button className="btn ghost" onClick={onClose}>Отмена</button>
+          <ActionButton className="btn primary" disabled={!d} onClick={onDeploy}>🚀 Запустить деплой</ActionButton>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- Deployments history ----------
+function DeploymentsTab({ p, open, refreshKey }: { p: any; open: (id: number, t: string) => void; refreshKey: number }) {
+  const { can } = useAuth();
+  const list = useFetch<any[]>(() => api(`/projects/${p.id}/deployments`), [p.id, refreshKey], 10000);
+  const label: Record<string, [string, string]> = {
+    success: ["green", "успешно"], failed: ["red", "ошибка"], rolled_back: ["yellow", "откачен"], running: ["yellow", "идёт"],
+  };
+  const latestOk = (list.data || []).find((d) => d.status === "success");
+  return (
+    <div className="stack">
+      <div className="hint">
+        Перед каждым деплоем сохраняется снимок: коммит, compose-файлы, активный .env и ID образов. Можно вернуть проект к состоянию после любого успешного деплоя.
+      </div>
+      <Loading error={list.error} loading={list.loading && !list.data} />
+      {list.data && !list.data.length && <div className="empty">Деплоев ещё не было</div>}
+      {!!list.data?.length && (
+        <table className="table">
+          <thead><tr><th>#</th><th>Тип</th><th>Статус</th><th>Коммит</th><th>Кто</th><th>Когда</th><th /></tr></thead>
+          <tbody>
+            {list.data.map((d) => {
+              const [cls, text] = label[d.status] || ["gray", d.status];
+              return (
+                <tr key={d.id}>
+                  <td>{d.id}</td>
+                  <td>{d.kind === "rollback" ? "откат" : "деплой"}{d.message && <div className="muted small">{d.message}</div>}</td>
+                  <td><span className={`badge ${cls}`}>{text}</span>{latestOk?.id === d.id && <span className="badge green" style={{ marginLeft: 4 }}>текущий</span>}</td>
+                  <td className="mono small">{d.commit_before ? d.commit_before.slice(0, 8) : "—"}{d.commit_after && d.commit_after !== d.commit_before && ` → ${d.commit_after.slice(0, 8)}`}</td>
+                  <td>{d.username}</td>
+                  <td className="small">{fmtDate(d.created_at)}</td>
+                  <td className="actions">
+                    {d.job_id && <button className="btn sm" onClick={() => open(d.job_id, `деплой #${d.id}`)}>Лог</button>}
+                    {can("operator") && d.can_rollback && latestOk?.id !== d.id && (
+                      <ActionButton className="btn sm" disabled={p.busy} confirm={`Вернуть проект к состоянию деплоя #${d.id}?`}
+                        onClick={async () => open((await api(`/projects/${p.id}/deployments/${d.id}/rollback`, { method: "POST" })).job_id, `откат к #${d.id}`)}>
+                        ↺ Откатить сюда
+                      </ActionButton>
+                    )}
+                  </td>
+                </tr>
+              );
             })}
           </tbody>
         </table>
@@ -513,6 +625,7 @@ function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (i
   const [f, setF] = useState({
     name: p.name, description: p.description, repo_url: p.repo_url, git_username: p.git_username,
     git_token: "", ssh_key: p.ssh_key || "", compose_files: p.compose_files, webhook_enabled: p.webhook_enabled,
+    auto_rollback: p.auto_rollback ?? true, health_timeout: p.health_timeout ?? 90,
   });
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
   const webhookUrl = (p.webhook_url.startsWith("/") ? location.origin : "") + p.webhook_url;
@@ -558,6 +671,11 @@ function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (i
                 onSaved();
               }}>Удалить токен</ActionButton>
             )}
+            <h3>Деплой</h3>
+            <label className="check"><input type="checkbox" checked={f.auto_rollback} onChange={set("auto_rollback")} /> Автооткат, если после деплоя контейнеры не поднялись</label>
+            <label className="inline">Ждать готовности контейнеров
+              <input type="number" min={10} max={1800} value={f.health_timeout} onChange={(e) => setF({ ...f, health_timeout: Number(e.target.value) })} style={{ width: 90 }} /> секунд
+            </label>
             <h3>Вебхук (авто-деплой при push)</h3>
             <label className="check"><input type="checkbox" checked={f.webhook_enabled} onChange={set("webhook_enabled")} /> Включён</label>
             <div className="hint">

@@ -14,14 +14,14 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import compose, git_ops
+from .. import compose, deploy, git_ops
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..deps import ROLE_LEVEL, audit, get_project, require, ws_user
 from ..discover import discover_stacks
 from ..dockerc import list_containers
 from ..jobs import BusyError, runner
-from ..models import Project, User
+from ..models import Deployment, Project, User
 from ..security import encrypt
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -101,6 +101,8 @@ class ProjectPatch(BaseModel):
     env_file: str | None = None
     webhook_enabled: bool | None = None
     regenerate_webhook: bool = False
+    auto_rollback: bool | None = None
+    health_timeout: int | None = Field(default=None, ge=10, le=1800)
 
     @field_validator("repo_url")
     @classmethod
@@ -150,6 +152,7 @@ def project_out(p: Project, user: User | None = None, counts: Counter | None = N
         "git_username": p.git_username, "has_token": bool(p.git_token_enc), "ssh_key": p.ssh_key,
         "compose_files": p.compose_files, "env_file": p.env_file,
         "webhook_enabled": p.webhook_enabled,
+        "auto_rollback": p.auto_rollback, "health_timeout": p.health_timeout,
         # webhook secret allows triggering deploys -> admins only
         "webhook_url": f"{settings.public_url}/api/webhooks/{p.slug}" if (p.webhook_secret and is_admin) else "",
         "webhook_secret": p.webhook_secret if is_admin else "",
@@ -178,10 +181,10 @@ def check_writable(p: Project, target: Path) -> None:
         raise HTTPException(400, ".git is read-only")
 
 
-def start_job(p: Project, user: User, action: str, steps, cwd=None, on_success=None) -> dict:
+def start_job(p: Project, user: User, action: str, steps, cwd=None, on_success=None, on_failure=None) -> dict:
     try:
         jid = runner.start(
-            action=action, steps=steps, cwd=cwd or p.path, project_id=p.id,
+            action=action, steps=steps, cwd=cwd or p.path, project_id=p.id, on_failure=on_failure,
             username=user.username, on_success=on_success, env=git_ops.git_env(p),
         )
     except BusyError as e:
@@ -334,7 +337,8 @@ def get_one(project_id: int, user: User = Depends(require("viewer")), db: Sessio
 @router.patch("/{project_id}")
 def update_project(project_id: int, data: ProjectPatch, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
-    for field in ("name", "description", "repo_url", "git_username", "compose_files", "env_file", "webhook_enabled"):
+    for field in ("name", "description", "repo_url", "git_username", "compose_files", "env_file", "webhook_enabled",
+                  "auto_rollback", "health_timeout"):
         v = getattr(data, field)
         if v is not None:
             setattr(p, field, v.strip() if isinstance(v, str) else v)
@@ -429,9 +433,54 @@ def project_action(
         names, _err = compose.services(p)
         if names and service not in names:
             raise HTTPException(400, f"Unknown service '{service}'")
-    steps = compose.action_steps(p, action, service, no_cache)
     audit(db, user, f"compose.{action}", p.slug, service or "")
+    if action == "deploy" and not service:
+        steps, on_failure = deploy.deploy_steps(p, user.username, no_cache)
+        return start_job(p, user, "deploy", steps, on_failure=on_failure)
+    steps = compose.action_steps(p, action, service, no_cache)
     return start_job(p, user, f"compose.{action}" + (f":{service}" if service else ""), steps)
+
+
+@router.get("/{project_id}/deploy-preview")
+def deploy_preview(project_id: int, _: User = Depends(require("operator")), db: Session = Depends(get_db)):
+    """What the next deploy will change: incoming commits, changed files, compose diff, local changes."""
+    p = get_project(db, project_id)
+    res: dict = {"source": p.source, "git": None, "local_changes": [], "config_ok": None, "config_error": ""}
+    if p.source == "git" and git_ops.is_repo(p):
+        try:
+            res["git"] = git_ops.incoming(p, compose.compose_files(p))
+            res["local_changes"] = git_ops.status(p)["changes"]
+        except git_ops.GitError as e:
+            res["git"] = {"error": str(e)}
+    ok, out = compose.config(p)
+    res["config_ok"], res["config_error"] = ok, "" if ok else out[-4000:]
+    return res
+
+
+# ---------- deployments history / rollback ----------
+@router.get("/{project_id}/deployments")
+def list_deployments(project_id: int, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    get_project(db, project_id)
+    rows = db.scalars(select(Deployment).where(Deployment.project_id == project_id)
+                      .order_by(Deployment.id.desc()).limit(50))
+    return [{
+        "id": d.id, "job_id": d.job_id, "kind": d.kind, "status": d.status, "username": d.username,
+        "commit_before": d.commit_before, "commit_after": d.commit_after, "message": d.message,
+        "can_rollback": d.status == "success" and bool(d.after_enc),
+        "created_at": d.created_at, "finished_at": d.finished_at,
+    } for d in rows]
+
+
+@router.post("/{project_id}/deployments/{dep_id}/rollback")
+def rollback_deployment(project_id: int, dep_id: int, user: User = Depends(require("operator")),
+                        db: Session = Depends(get_db)):
+    p = get_project(db, project_id)
+    d = db.get(Deployment, dep_id)
+    if not d or d.project_id != p.id or d.status != "success" or not d.after_enc:
+        raise HTTPException(400, "К этому деплою нельзя откатиться")
+    steps, on_failure = deploy.rollback_steps(p, d, user.username)
+    audit(db, user, "deploy.rollback", p.slug, f"to #{dep_id}")
+    return start_job(p, user, f"rollback:#{dep_id}", steps, on_failure=on_failure)
 
 
 # ---------- git ----------

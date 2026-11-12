@@ -40,7 +40,27 @@ class Project(Base):
     env_file: Mapped[str] = mapped_column(String(512), default="")
     webhook_secret: Mapped[str] = mapped_column(String(128), default="")
     webhook_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_rollback: Mapped[bool] = mapped_column(Boolean, default=True)
+    health_timeout: Mapped[int] = mapped_column(Integer, default=90)  # seconds to wait for healthy containers
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Deployment(Base):
+    """One deploy/rollback with encrypted snapshots of the state before and after (commit, files, image ids)."""
+    __tablename__ = "deployments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kind: Mapped[str] = mapped_column(String(16), default="deploy")  # deploy | rollback
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running | success | failed | rolled_back
+    username: Mapped[str] = mapped_column(String(64), default="")
+    commit_before: Mapped[str] = mapped_column(String(64), default="")
+    commit_after: Mapped[str] = mapped_column(String(64), default="")
+    before_enc: Mapped[str] = mapped_column(Text, default="")
+    after_enc: Mapped[str] = mapped_column(Text, default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Job(Base):
