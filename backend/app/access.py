@@ -29,12 +29,12 @@ def project_role(db: Session, user: User, project_id: int | None) -> str:
     return row.role if row else user.role
 
 
-def role_for_slug(db: Session, user: User, slug: str | None) -> str:
-    """Role for a compose project name (container label); non-panel stacks use the global role."""
+def role_for_slug(db: Session, user: User, slug: str | None, server_id: int | None = None) -> str:
+    """Role for a compose project name (container label) on a docker host; non-panel stacks use the global role."""
     if user.role == "admin" or not slug:
         return user.role
     p = db.scalar(select(Project).where(Project.slug == slug))
-    return project_role(db, user, p.id) if p else user.role
+    return project_role(db, user, p.id) if p and p.server_id == server_id else user.role
 
 
 def roles_by_project(db: Session, user: User) -> dict[int, str]:
@@ -45,9 +45,11 @@ def roles_by_project(db: Session, user: User) -> dict[int, str]:
     return {pid: overrides.get(pid, user.role) for pid in db.scalars(select(Project.id))}
 
 
-def roles_by_slug(db: Session, user: User) -> dict[str, str]:
+def roles_by_slug(db: Session, user: User, server_id: int | None = None) -> dict[str, str]:
+    """Roles of panel projects living on `server_id`, keyed by compose project name."""
     roles = roles_by_project(db, user)
-    return {slug: roles[pid] for pid, slug in db.execute(select(Project.id, Project.slug)).all()}
+    rows = db.execute(select(Project.id, Project.slug, Project.server_id)).all()
+    return {slug: roles[pid] for pid, slug, sid in rows if sid == server_id}
 
 
 def require_project(need: str):

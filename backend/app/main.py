@@ -20,6 +20,7 @@ from .authsec import client_ip
 from .routers import auth, docker_res, jobs, projects, system, webhooks
 from .routers import backups as backups_router
 from .routers import metrics as metrics_router
+from .routers import servers as servers_router
 from .routers import registries as registries_router
 from .version import VERSION
 from .security import hash_password
@@ -89,6 +90,8 @@ async def lifespan(app: FastAPI):
     runner.loop = asyncio.get_running_loop()
     init_db()
     registries.activate()
+    from . import servers as servers_mod
+    servers_mod.write_ssh_config()
     updater.start_background()
     if not os.getenv("DM_TESTING"):
         from . import metrics
@@ -157,7 +160,7 @@ class SecurityMiddleware:
 app = FastAPI(title="Docker Manager", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware)
 for r in (auth.router, projects.router, jobs.router, docker_res.router, webhooks.router,
-          system.router, registries_router.router, backups_router.router, metrics_router.router):
+          system.router, registries_router.router, backups_router.router, metrics_router.router, servers_router.router):
     app.include_router(r)
 
 

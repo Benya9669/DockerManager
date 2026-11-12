@@ -22,6 +22,17 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Server(Base):
+    """Remote Docker host. Projects with server_id run their compose/docker commands there."""
+    __tablename__ = "servers"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    docker_host: Mapped[str] = mapped_column(String(512))  # ssh://user@host[:port] or tcp://host:2375
+    ssh_key: Mapped[str] = mapped_column(String(255), default="")  # key file name in the SSH dir
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Project(Base):
     __tablename__ = "projects"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -40,6 +51,7 @@ class Project(Base):
     env_file: Mapped[str] = mapped_column(String(512), default="")
     webhook_secret: Mapped[str] = mapped_column(String(128), default="")
     webhook_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    server_id: Mapped[int | None] = mapped_column(ForeignKey("servers.id", ondelete="SET NULL"), nullable=True)
     auto_rollback: Mapped[bool] = mapped_column(Boolean, default=True)
     health_timeout: Mapped[int] = mapped_column(Integer, default=90)  # seconds to wait for healthy containers
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -91,6 +103,7 @@ class Backup(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     kind: Mapped[str] = mapped_column(String(16))  # panel | files | volume
     target: Mapped[str] = mapped_column(String(255), default="")  # volume name / project slug / "panel"
+    server_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # docker host of a volume backup
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
     filename: Mapped[str] = mapped_column(String(255))
     size: Mapped[int] = mapped_column(Integer, default=0)

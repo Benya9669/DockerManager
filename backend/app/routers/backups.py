@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/backups", tags=["backups"])
 
 
 def out(b: Backup) -> dict:
-    return {"id": b.id, "kind": b.kind, "target": b.target, "project_id": b.project_id, "filename": b.filename,
+    return {"id": b.id, "kind": b.kind, "target": b.target, "project_id": b.project_id, "server_id": b.server_id, "filename": b.filename,
             "size": b.size, "status": b.status, "username": b.username, "created_at": b.created_at}
 
 
@@ -25,6 +25,7 @@ class ProjectBackupIn(BaseModel):
 
 class VolumeIn(BaseModel):
     volume: str = Field(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9][\w.-]*$")
+    server_id: int | None = None
 
 
 def _start(action: str, steps, user: User, project_id: int | None = None) -> dict:
@@ -72,7 +73,7 @@ def backup_project(project_id: int, data: ProjectBackupIn, user: User = Depends(
 def backup_volume(data: VolumeIn, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
     audit(db, user, "backup.volume", data.volume)
     return _start(f"backup:volume:{data.volume}",
-                  [("", lambda ctx: backups.backup_volume(ctx, data.volume, user.username))], user)
+                  [("", lambda ctx: backups.backup_volume(ctx, data.volume, user.username, None, data.server_id))], user)
 
 
 @router.get("/{backup_id}/download")

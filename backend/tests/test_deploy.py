@@ -42,7 +42,7 @@ def project(client, auth, monkeypatch):
     p = client.post("/api/projects", json={"name": f"Dep {time.time_ns()}", "source": "empty"}, headers=auth).json()
     cf = Path(p["path"]) / "docker-compose.yml"
     fake = FakeDocker(cf)
-    monkeypatch.setattr(deploy, "api", lambda: fake)
+    monkeypatch.setattr(deploy, "api", lambda *a, **k: fake)
     monkeypatch.setattr(deploy, "STABLE_FOR", 0)
     monkeypatch.setattr(deploy, "POLL", 0.05)
     # no real docker: "compose up" is a no-op python call

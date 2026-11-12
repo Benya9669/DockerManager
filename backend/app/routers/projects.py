@@ -14,12 +14,13 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import compose, deploy, git_ops, templates
+from .. import compose, deploy, git_ops, servers, templates
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..deps import ROLE_LEVEL, audit, get_project, require, ws_user
 from ..access import level, project_role, require_project, roles_by_project
 from ..discover import discover_stacks
+from ..servers import docker_env
 from ..dockerc import list_containers
 from ..jobs import BusyError, runner
 from ..models import Deployment, Project, User
@@ -67,6 +68,7 @@ class ProjectIn(BaseModel):
     description: str = ""
     source: str = Field(default="git", pattern="^(git|local|empty|template)$")
     template: str = ""
+    server_id: int | None = None  # None = local docker
     repo_url: str = ""
     branch: str = ""
     git_username: str = ""
@@ -106,6 +108,8 @@ class ProjectPatch(BaseModel):
     regenerate_webhook: bool = False
     auto_rollback: bool | None = None
     health_timeout: int | None = Field(default=None, ge=10, le=1800)
+    set_server: bool = False  # apply server_id (None = local docker)
+    server_id: int | None = None
 
     @field_validator("repo_url")
     @classmethod
@@ -164,6 +168,7 @@ def project_out(p: Project, user: User | None = None, counts: Counter | None = N
         "compose_files": p.compose_files, "env_file": p.env_file,
         "webhook_enabled": p.webhook_enabled,
         "auto_rollback": p.auto_rollback, "health_timeout": p.health_timeout,
+        "server_id": p.server_id, "server_name": (servers.get(p.server_id).name if p.server_id and servers.get(p.server_id) else None),
         # webhook secret allows triggering deploys -> admins only
         "webhook_url": f"{settings.public_url}/api/webhooks/{p.slug}" if (p.webhook_secret and is_admin) else "",
         "webhook_secret": p.webhook_secret if is_admin else "",
@@ -196,7 +201,7 @@ def start_job(p: Project, user: User, action: str, steps, cwd=None, on_success=N
     try:
         jid = runner.start(
             action=action, steps=steps, cwd=cwd or p.path, project_id=p.id, on_failure=on_failure,
-            username=user.username, on_success=on_success, env=git_ops.git_env(p),
+            username=user.username, on_success=on_success, env={**git_ops.git_env(p), **docker_env(p)},
         )
     except BusyError as e:
         raise HTTPException(409, str(e))
@@ -208,6 +213,12 @@ def check_ssh_key(name: str) -> str:
     if name and name not in {k["name"] for k in git_ops.list_ssh_keys()}:
         raise HTTPException(400, f"SSH key '{name}' not found in {settings.ssh_dir}")
     return name
+
+
+def check_server(server_id: int | None) -> int | None:
+    if server_id is not None and not servers.get(server_id):
+        raise HTTPException(400, "Server not found")
+    return server_id
 
 
 @router.get("/templates")
@@ -266,19 +277,21 @@ def import_stack(data: ImportIn, user: User = Depends(require("admin")), db: Ses
 # ---------- CRUD ----------
 @router.get("")
 def list_projects(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-    running, total = Counter(), Counter()
-    try:
-        for c in list_containers():
-            if c["project"]:
-                total[c["project"]] += 1
-                if c["state"] == "running":
-                    running[c["project"]] += 1
-    except HTTPException:
-        pass
     roles = roles_by_project(db, user)
-    return [project_out(p, user, running, total, role=roles.get(p.id))
-            for p in db.scalars(select(Project).order_by(Project.name))
-            if level(roles.get(p.id)) >= level("viewer")]
+    projects = [p for p in db.scalars(select(Project).order_by(Project.name)) if level(roles.get(p.id)) >= level("viewer")]
+    running, total = Counter(), Counter()  # keyed by (server_id, compose project)
+    for sid in {p.server_id for p in projects}:
+        try:
+            for c in list_containers(server_id=sid):
+                if c["project"]:
+                    total[(sid, c["project"])] += 1
+                    if c["state"] == "running":
+                        running[(sid, c["project"])] += 1
+        except HTTPException:
+            pass
+    return [project_out(p, user, Counter({p.slug: running[(p.server_id, p.slug)]}),
+                        Counter({p.slug: total[(p.server_id, p.slug)]}), role=roles.get(p.id))
+            for p in projects]
 
 
 @router.post("")
@@ -312,7 +325,7 @@ def create_project(data: ProjectIn, user: User = Depends(require("admin")), db: 
         source="git" if data.source == "git" else "local",
         path=str(path), managed=managed, repo_url=data.repo_url.strip(), branch=data.branch.strip(),
         git_username=data.git_username.strip(), git_token_enc=encrypt(data.git_token.strip()),
-        ssh_key=check_ssh_key(data.ssh_key),
+        ssh_key=check_ssh_key(data.ssh_key), server_id=check_server(data.server_id),
         compose_files=data.compose_files.strip() or "docker-compose.yml", env_file=data.env_file.strip(),
         webhook_secret=secrets.token_urlsafe(24),
     )
@@ -374,6 +387,8 @@ def update_project(project_id: int, data: ProjectPatch, user: User = Depends(req
         safe_path(p, data.env_file)
     if data.ssh_key is not None:
         p.ssh_key = check_ssh_key(data.ssh_key)
+    if data.set_server:
+        p.server_id = check_server(data.server_id)
     if data.git_token:
         p.git_token_enc = encrypt(data.git_token.strip())
     if data.clear_token:
@@ -425,7 +440,7 @@ def project_services(project_id: int, _: User = Depends(require_project("viewer"
     p = get_project(db, project_id)
     names, error = compose.services(p)
     try:
-        containers = list_containers(p.slug)
+        containers = list_containers(p.slug, p.server_id)
         docker_error = None
     except HTTPException as e:
         containers, docker_error = [], e.detail
@@ -752,7 +767,7 @@ async def ws_project_logs(ws: WebSocket, project_id: int):
     loop = asyncio.get_running_loop()
     q: asyncio.Queue = asyncio.Queue()
     try:
-        proc = subprocess.Popen(args, cwd=p.path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        proc = subprocess.Popen(args, cwd=p.path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=compose.env(p),
                                 stdin=subprocess.DEVNULL, bufsize=0)
     except (FileNotFoundError, NotADirectoryError, OSError) as e:
         await ws.send_text(f"\r\n[error] {e}\r\n")

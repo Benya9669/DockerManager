@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -20,10 +21,16 @@ def base(p: Project, ansi: str = "never") -> list[str]:
     return args
 
 
+def env(p: Project) -> dict[str, str]:
+    """Process env for docker/compose commands of this project (DOCKER_HOST for remote servers)."""
+    from .servers import docker_env
+    return {**os.environ, **docker_env(p)}
+
+
 def run(p: Project, *args: str, timeout: int = 60) -> subprocess.CompletedProcess:
     return subprocess.run(
         [*base(p), *args], cwd=p.path, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=timeout,
+        encoding="utf-8", errors="replace", timeout=timeout, env=env(p),
     )
 
 

@@ -33,7 +33,7 @@ def test_container_env_hidden_from_viewer(client, auth, viewer, monkeypatch):
         def inspect_container(self, cid):
             return {"Id": cid, "Config": {"Env": ["DB_PASSWORD=secret"]}, "HostConfig": {"Binds": []}}
 
-    monkeypatch.setattr(docker_res, "api", lambda: FakeAPI())
+    monkeypatch.setattr(docker_res, "api", lambda *a, **k: FakeAPI())
     assert "DB_PASSWORD=secret" not in str(client.get("/api/docker/containers/abc", headers=viewer).json())
     assert "DB_PASSWORD=secret" in str(client.get("/api/docker/containers/abc", headers=auth).json())
 

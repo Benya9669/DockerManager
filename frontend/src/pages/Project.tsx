@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api, wsUrl } from "../api";
 import { XTerm } from "../XTerm";
 import { ProjectMonitoring } from "../Monitoring";
+import { ServerPicker } from "../server";
 import { atLeast, useAuth } from "../auth";
 import { Editor } from "../Editor";
 import { JobPanel } from "../JobPanel";
@@ -48,6 +49,7 @@ export function ProjectPage() {
         <div>
           <div className="muted small"><Link to="/">Проекты</Link> /</div>
           <h1>{p.name} <span className="muted small">{p.slug}</span></h1>
+          {p.server_name && <div className="small">🖥 Хост: <b>{p.server_name}</b></div>}
           {p.description && <div className="muted">{p.description}</div>}
         </div>
         {atLeast(p.my_role, "operator") && <ProjectToolbar p={p} runAction={runAction} />}
@@ -187,7 +189,7 @@ function ServicesTab({ p, runAction, refreshKey }: { p: any; runAction: any; ref
               return cs.map((c: any, i: number) => (
                 <tr key={svc.name + i}>
                   <td><b>{i === 0 ? svc.name : ""}</b></td>
-                  <td>{c ? <Link to={`/containers/${c.id}`}>{c.name}</Link> : <span className="muted">—</span>}</td>
+                  <td>{c ? <Link to={`/containers/${c.id}${p.server_id ? `?server=${p.server_id}` : ""}`}>{c.name}</Link> : <span className="muted">—</span>}</td>
                   <td>
                     <StateBadge state={c?.state} />
                     {c && <div className="muted small">{c.status}</div>}
@@ -203,8 +205,8 @@ function ServicesTab({ p, runAction, refreshKey }: { p: any; runAction: any; ref
                         <ActionButton className="btn sm" disabled={p.busy} title="build + recreate" onClick={() => runAction("rebuild", { service: svc.name }, `Rebuild ${svc.name}`)}>🔨</ActionButton>
                       </>
                     )}
-                    {c && <Link className="btn sm" to={`/containers/${c.id}?tab=logs`}>Логи</Link>}
-                    {c && atLeast(p.my_role, "operator") && c.state === "running" && <Link className="btn sm" to={`/containers/${c.id}?tab=shell`}>Shell</Link>}
+                    {c && <Link className="btn sm" to={`/containers/${c.id}?tab=logs${p.server_id ? `&server=${p.server_id}` : ""}`}>Логи</Link>}
+                    {c && atLeast(p.my_role, "operator") && c.state === "running" && <Link className="btn sm" to={`/containers/${c.id}?tab=shell${p.server_id ? `&server=${p.server_id}` : ""}`}>Shell</Link>}
                   </td>
                 </tr>
               ));
@@ -633,6 +635,7 @@ function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (i
     name: p.name, description: p.description, repo_url: p.repo_url, git_username: p.git_username,
     git_token: "", ssh_key: p.ssh_key || "", compose_files: p.compose_files, webhook_enabled: p.webhook_enabled,
     auto_rollback: p.auto_rollback ?? true, health_timeout: p.health_timeout ?? 90,
+    server_id: (p.server_id ?? null) as number | null, set_server: false,
   });
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
   const webhookUrl = (p.webhook_url.startsWith("/") ? location.origin : "") + p.webhook_url;
@@ -657,6 +660,15 @@ function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (i
         </div>
         <label>Описание<input value={f.description} onChange={set("description")} /></label>
         <div className="muted small">Путь: <span className="mono">{p.path}</span></div>
+        <label>
+          Где запускать (Docker-хост)
+          <ServerPicker value={f.server_id} onChange={(v) => setF({ ...f, server_id: v, set_server: true })} />
+        </label>
+        {f.set_server && f.server_id !== p.server_id && (
+          <div className="alert err">
+            Смена хоста не переносит контейнеры и тома: на старом хосте сделайте Down, после сохранения — Деплой на новом.
+          </div>
+        )}
         {p.source === "git" && (
           <>
             <h3>Git</h3>

@@ -11,6 +11,7 @@ from ..db import get_db
 from ..deps import audit
 from ..jobs import BusyError, runner
 from ..models import Project
+from ..servers import docker_env
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
@@ -48,7 +49,7 @@ async def webhook(slug: str, request: Request, db: Session = Depends(get_db)):
     try:
         steps, on_failure = deploy.deploy_steps(p, "webhook")
         jid = runner.start(action="webhook.deploy", steps=steps, cwd=p.path, on_failure=on_failure,
-                           project_id=p.id, username="webhook", env=git_ops.git_env(p))
+                           project_id=p.id, username="webhook", env={**git_ops.git_env(p), **docker_env(p)})
     except BusyError as e:
         raise HTTPException(409, str(e))
     audit(db, "webhook", "webhook.deploy", p.slug, ref or "")

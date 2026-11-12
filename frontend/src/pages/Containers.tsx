@@ -2,14 +2,15 @@ import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, wsUrl } from "../api";
 import { atLeast } from "../auth";
+import { useServer, withServer } from "../server";
 import { Editor } from "../Editor";
 import { XTerm } from "../XTerm";
 import { ActionButton, Loading, Ports, StateBadge, Tabs, fmtBytes, fmtDate, useFetch } from "../ui";
 
-function ContainerActions({ c, onDone }: { c: { id: string; state: string; my_role?: string }; onDone: () => void }) {
+function ContainerActions({ c, onDone, sid }: { c: { id: string; state: string; my_role?: string }; onDone: () => void; sid: number | null }) {
   if (!atLeast(c.my_role, "operator")) return null;
   const act = (a: string) => async () => {
-    await api(`/docker/containers/${c.id}/${a}`, { method: "POST" });
+    await api(withServer(`/docker/containers/${c.id}/${a}`, sid), { method: "POST" });
     onDone();
   };
   return (
@@ -23,7 +24,8 @@ function ContainerActions({ c, onDone }: { c: { id: string; state: string; my_ro
 }
 
 export function ContainersPage() {
-  const list = useFetch<any[]>(() => api("/docker/containers"), [], 5000);
+  const { serverId } = useServer();
+  const list = useFetch<any[]>(() => api(withServer("/docker/containers", serverId)), [serverId], 5000);
   const [q, setQ] = useState("");
   const [onlyRunning, setOnlyRunning] = useState(false);
   const items = (list.data || [])
@@ -46,12 +48,12 @@ export function ContainersPage() {
         <tbody>
           {items.map((c) => (
             <tr key={c.id}>
-              <td><Link to={`/containers/${c.id}`}>{c.name}</Link><div className="muted small mono">{c.short_id}</div></td>
+              <td><Link to={`/containers/${c.id}${serverId != null ? `?server=${serverId}` : ""}`}>{c.name}</Link><div className="muted small mono">{c.short_id}</div></td>
               <td>{c.project ? <>{c.project}<span className="muted"> / {c.service}</span></> : <span className="muted">—</span>}</td>
               <td><StateBadge state={c.state} /><div className="muted small">{c.status}</div></td>
               <td className="small mono">{c.image}</td>
               <td><Ports ports={c.ports} /></td>
-              <td className="actions"><ContainerActions c={c} onDone={list.reload} /></td>
+              <td className="actions"><ContainerActions c={c} onDone={list.reload} sid={serverId} /></td>
             </tr>
           ))}
         </tbody>
@@ -65,8 +67,11 @@ export function ContainerPage() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
   const tab = sp.get("tab") || "logs";
-  const info = useFetch<any>(() => api(`/docker/containers/${id}`), [id], 5000);
-  const stats = useFetch<any>(() => (info.data?.State?.Running ? api(`/docker/containers/${id}/stats`) : Promise.resolve(null)), [id, info.data?.State?.Running], 5000);
+  const { serverId } = useServer();
+  const sid = sp.get("server") ? Number(sp.get("server")) : serverId;
+  const sp0: Record<string, string> = sid != null ? { server_id: String(sid) } : {};
+  const info = useFetch<any>(() => api(withServer(`/docker/containers/${id}`, sid)), [id, sid], 5000);
+  const stats = useFetch<any>(() => (info.data?.State?.Running ? api(withServer(`/docker/containers/${id}/stats`, sid)) : Promise.resolve(null)), [id, sid, info.data?.State?.Running], 5000);
   const [tail, setTail] = useState("500");
   const [ts, setTs] = useState(false);
   const [shell, setShell] = useState("");
@@ -93,12 +98,12 @@ export function ContainerPage() {
               <span>RAM <b>{fmtBytes(stats.data.mem_usage)}</b> / {fmtBytes(stats.data.mem_limit)}</span>
             </div>
           )}
-          <ContainerActions c={{ id: c.Id, state, my_role: c._my_role }} onDone={info.reload} />
+          <ContainerActions c={{ id: c.Id, state, my_role: c._my_role }} onDone={info.reload} sid={sid} />
         </div>
       </div>
       <Tabs
         active={tab}
-        onChange={(t) => setSp({ tab: t }, { replace: true })}
+        onChange={(t) => setSp({ tab: t, ...(sid != null ? { server: String(sid) } : {}) }, { replace: true })}
         tabs={[["logs", "Логи"], ...(atLeast(c._my_role, "operator") ? ([["shell", "Терминал"]] as [string, string][]) : []), ["inspect", "Inspect"], ["env", "Env / mounts"]]}
       />
       <div className="tab-body">
@@ -111,8 +116,8 @@ export function ContainerPage() {
               </select>
               <label className="check"><input type="checkbox" checked={ts} onChange={(e) => setTs(e.target.checked)} />время</label>
             </div>
-            <XTerm url={wsUrl(`/docker/containers/${id}/logs`, { tail, timestamps: ts ? "1" : "0" })} mode="stream" height="65vh"
-              download={{ path: `/docker/containers/${id}/logs/download?tail=${tail}&timestamps=${ts ? 1 : 0}`, filename: `${c.Name?.replace(/^\//, "")}.log` }} />
+            <XTerm url={wsUrl(`/docker/containers/${id}/logs`, { tail, timestamps: ts ? "1" : "0", ...sp0 })} mode="stream" height="65vh"
+              download={{ path: withServer(`/docker/containers/${id}/logs/download?tail=${tail}&timestamps=${ts ? 1 : 0}`, sid), filename: `${c.Name?.replace(/^\//, "")}.log` }} />
           </>
         )}
         {tab === "shell" && (
@@ -122,7 +127,7 @@ export function ContainerPage() {
                 <input className="grow mono" placeholder="команда (по умолчанию bash или sh)" value={shell} onChange={(e) => setShell(e.target.value)} />
                 <button className="btn" onClick={() => setShellKey((k) => k + 1)}>Переподключить</button>
               </div>
-              <XTerm key={shellKey} url={wsUrl(`/docker/containers/${id}/exec`, shell ? { cmd: shell } : {})} mode="exec" height="65vh" />
+              <XTerm key={shellKey} url={wsUrl(`/docker/containers/${id}/exec`, { ...(shell ? { cmd: shell } : {}), ...sp0 })} mode="exec" height="65vh" />
             </>
           ) : <div className="empty">Контейнер не запущен</div>
         )}

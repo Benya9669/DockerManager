@@ -78,7 +78,7 @@ def test_discover_import(client, auth, tmp_root, monkeypatch):
             }
             return [{"Labels": labels, "State": "running"}]
 
-    monkeypatch.setattr(discover, "api", lambda: FakeAPI())
+    monkeypatch.setattr(discover, "api", lambda *a, **k: FakeAPI())
     found = client.get("/api/projects/discover", headers=auth).json()
     assert found[0]["slug"] == "shop" and found[0]["accessible"]
     p = client.post("/api/projects/import", json={"slug": "shop"}, headers=auth).json()

@@ -87,7 +87,8 @@ def test_job_stream_ws(client, auth):
 def _git(cwd, *args):
     r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd,
                        capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
+    import os
+    assert r.returncode == 0, (r.stderr, os.getcwd(), {k: v for k, v in os.environ.items() if k.startswith(("GIT", "DOCKER", "HOME", "SSH"))})
 
 
 @pytest.fixture()
@@ -102,7 +103,7 @@ def origin(tmp_path):
 
 
 def test_git_clone_status_pull(client, origin, tmp_path):
-    p = Project(slug="g", path=str(tmp_path / "clone"), repo_url=str(origin), branch="main",
+    p = Project(slug="g", path=str(tmp_path / "clone"), repo_url=origin.as_uri(), branch="main",
                 git_username="", git_token_enc="", ssh_key="")
     jid = runner.start(action="t.clone", steps=git_ops.clone_steps(p), cwd=str(tmp_path), env=git_ops.git_env(p))
     j = wait_job(jid)
@@ -127,7 +128,7 @@ def test_git_clone_status_pull(client, origin, tmp_path):
 
 def test_git_dirty_detected(client, origin, tmp_path):
     clone = tmp_path / "c2"
-    _git(tmp_path, "clone", str(origin), str(clone))
+    _git(tmp_path, "clone", origin.as_uri(), str(clone))
     p = Project(slug="g2", path=str(clone), repo_url=str(origin), branch="main", git_token_enc="", ssh_key="")
     (clone / "docker-compose.yml").write_text("changed\n")
     assert git_ops.status(p)["changes"]

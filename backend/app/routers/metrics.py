@@ -22,13 +22,13 @@ def project(project_id: int, hours: float = Query(6, gt=0, le=168), user: User =
     p = get_project(db, project_id)
     if level(project_role(db, user, p.id)) < level("viewer"):
         raise HTTPException(404, "Project not found")
-    return {"interval": settings.metrics_interval, "series": metrics.container_series(hours, project=p.slug)}
+    return {"interval": settings.metrics_interval, "series": metrics.container_series(hours, project=p.slug, server_id=p.server_id)}
 
 
 @router.get("/containers/{cid}")
-def container(cid: str, hours: float = Query(6, gt=0, le=168), user: User = Depends(require("viewer")),
+def container(cid: str, hours: float = Query(6, gt=0, le=168), server_id: int | None = None, user: User = Depends(require("viewer")),
               db: Session = Depends(get_db)):
-    series = metrics.container_series(hours, container=cid)
-    if series and level(role_for_slug(db, user, series[0]["project"] or None)) < level("viewer"):
+    series = metrics.container_series(hours, container=cid, server_id=server_id)
+    if series and level(role_for_slug(db, user, series[0]["project"] or None, server_id)) < level("viewer"):
         raise HTTPException(404, "Not found")
     return {"interval": settings.metrics_interval, "series": series}

@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { ActionButton, Loading, Modal, toast, toastErr, useFetch } from "../ui";
 import { SshKeySelect } from "../SshKeySelect";
+import { ServerPicker, useServer } from "../server";
 
 export function ProjectsPage() {
   const { can } = useAuth();
@@ -36,6 +37,7 @@ export function ProjectsPage() {
             {p.description && <p className="desc">{p.description}</p>}
             <div className="row wrap small">
               <span className="chip">{p.source === "git" ? `⎇ ${p.branch || "git"}` : "📁 локальный"}</span>
+              {p.server_name && <span className="chip">🖥 {p.server_name}</span>}
               {p.env_file && <span className="chip">env: {p.env_file}</span>}
               <span className={`chip ${p.containers_running ? "green" : ""}`}>
                 ▶ {p.containers_running}/{p.containers_total}
@@ -141,9 +143,10 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
 
 function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const nav = useNavigate();
+  const { servers } = useServer();
   const [f, setF] = useState({
     name: "", slug: "", description: "", source: "git", repo_url: "", branch: "",
-    git_username: "", git_token: "", ssh_key: "", path: "", template: "", compose_files: "docker-compose.yml", env_file: "",
+    git_username: "", git_token: "", ssh_key: "", path: "", template: "", server_id: null as number | null, compose_files: "docker-compose.yml", env_file: "",
   });
   const [busy, setBusy] = useState(false);
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
@@ -200,6 +203,9 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
         {f.source === "template" && <TemplatePicker value={f.template} onChange={(t) => setF({ ...f, template: t })} />}
         {f.source === "local" && (
           <label>Путь к папке на сервере *<input required value={f.path} onChange={set("path")} placeholder="/opt/apps/myapp" /></label>
+        )}
+        {servers.length > 0 && (
+          <label>Где запускать<ServerPicker value={f.server_id} onChange={(v) => setF({ ...f, server_id: v })} /></label>
         )}
         <div className="cols">
           <label>Compose-файлы (через запятую)<input value={f.compose_files} onChange={set("compose_files")} /></label>

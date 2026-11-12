@@ -28,6 +28,13 @@ services:
       DM_UPDATE_SSH_KEY: ${DM_UPDATE_SSH_KEY:-}
       DM_AUTO_UPDATE: ${DM_AUTO_UPDATE:-false}
       DM_UPDATE_CHECK_HOURS: ${DM_UPDATE_CHECK_HOURS:-6}
+      # /root/.ssh belongs to the panel container -> it may write per-server SSH aliases
+      DM_MANAGE_SSH_CONFIG: "true"
+      DM_METRICS_INTERVAL: ${DM_METRICS_INTERVAL:-30}
+      DM_METRICS_RETENTION_HOURS: ${DM_METRICS_RETENTION_HOURS:-24}
+      DM_BACKUP_INTERVAL_HOURS: ${DM_BACKUP_INTERVAL_HOURS:-0}
+      DM_BACKUP_KEEP: ${DM_BACKUP_KEEP:-7}
+      DM_BACKUP_STOP_CONTAINERS: ${DM_BACKUP_STOP_CONTAINERS:-false}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dm-data:/data

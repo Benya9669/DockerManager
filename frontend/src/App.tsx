@@ -11,6 +11,8 @@ import { CleanupPage } from "./pages/Cleanup";
 import { AccountPage, AuditPage, RegistriesPage, UsersPage } from "./pages/Admin";
 import { api } from "./api";
 import { BackupsPage } from "./pages/Backups";
+import { ServersPage } from "./pages/Servers";
+import { ServerSelect } from "./server";
 import { useFetch } from "./ui";
 
 const ROLE_RU = { admin: "администратор", operator: "оператор", viewer: "наблюдатель" } as const;
@@ -37,6 +39,7 @@ export function App() {
     ["/networks", "🔗 Сети", true],
     ["/jobs", "⚙️ Задачи", true],
     ["/system", "🧹 Система и очистка", true],
+    ["/servers", "🖥 Серверы", can("admin")],
     ["/backups", "💾 Бэкапы", can("admin")],
     ["/registries", "🔐 Реестры", can("admin")],
     ["/users", "👥 Пользователи", can("admin")],
@@ -47,6 +50,7 @@ export function App() {
     <div className="layout">
       <aside className="sidebar">
         <div className="brand">🐳 Docker Manager</div>
+        <ServerSelect />
         <nav>
           {nav.filter((n) => n[2]).map(([to, label]) => (
             <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `nav ${isActive ? "active" : ""}`}>
@@ -81,6 +85,7 @@ export function App() {
           <Route path="/system" element={<CleanupPage />} />
           <Route path="/registries" element={<RegistriesPage />} />
           <Route path="/backups" element={<BackupsPage />} />
+          <Route path="/servers" element={<ServersPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/account" element={<AccountPage />} />

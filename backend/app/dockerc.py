@@ -1,28 +1,50 @@
+"""Docker API clients: the local engine (server_id=None) and remote hosts (servers table)."""
 import threading
 
 import docker
 from docker.errors import DockerException
 from fastapi import HTTPException
 
-_client = None
+_clients: dict[int | None, docker.DockerClient] = {}
 _lock = threading.Lock()
 
 
-def client() -> docker.DockerClient:
-    global _client
+def client(server_id: int | None = None) -> docker.DockerClient:
     with _lock:
-        if _client is None:
-            try:
-                _client = docker.from_env(timeout=30)
-                _client.ping()
-            except DockerException as e:
-                _client = None
-                raise HTTPException(503, f"Docker is not available: {e}")
-        return _client
+        c = _clients.get(server_id)
+        if c is not None:
+            return c
+        try:
+            if server_id is None:
+                c = docker.from_env(timeout=30)
+            else:
+                from . import servers
+                s = servers.get(server_id)
+                if not s:
+                    raise HTTPException(404, "Server not found")
+                url = servers.docker_host(s)
+                c = docker.DockerClient(base_url=url, use_ssh_client=url.startswith("ssh://"), timeout=30)
+            c.ping()
+        except DockerException as e:
+            where = "local Docker" if server_id is None else f"server #{server_id}"
+            raise HTTPException(503, f"Docker is not available ({where}): {e}")
+        _clients[server_id] = c
+        return c
 
 
-def api():
-    return client().api
+def forget(server_id: int | None) -> None:
+    """Drop a cached client (server settings changed or connection broke)."""
+    with _lock:
+        c = _clients.pop(server_id, None)
+    if c is not None:
+        try:
+            c.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def api(server_id: int | None = None):
+    return client(server_id).api
 
 
 def summarize_container(c: dict) -> dict:
@@ -44,6 +66,6 @@ def summarize_container(c: dict) -> dict:
     }
 
 
-def list_containers(project_slug: str | None = None) -> list[dict]:
+def list_containers(project_slug: str | None = None, server_id: int | None = None) -> list[dict]:
     filters = {"label": f"com.docker.compose.project={project_slug}"} if project_slug else None
-    return [summarize_container(c) for c in api().containers(all=True, filters=filters)]
+    return [summarize_container(c) for c in api(server_id).containers(all=True, filters=filters)]

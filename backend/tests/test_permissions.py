@@ -63,10 +63,10 @@ def test_containers_filtered_by_project(client, setup, monkeypatch):
             slug = cid.removeprefix("id-")
             return {"Id": cid, "Config": {"Labels": {"com.docker.compose.project": slug}, "Env": ["SECRET=1"]}}
 
-    monkeypatch.setattr(docker_res, "list_containers", lambda: [
+    monkeypatch.setattr(docker_res, "list_containers", lambda *a, **k: [
         {"id": c["Id"], "project": c["Labels"]["com.docker.compose.project"], "name": c["Names"][0][1:], "state": "running"}
         for c in FakeAPI().containers()])
-    monkeypatch.setattr(docker_res, "api", lambda: FakeAPI())
+    monkeypatch.setattr(docker_res, "api", lambda *a, **k: FakeAPI())
     names = {c["project"]: c["my_role"] for c in client.get("/api/docker/containers", headers=h).json()}
     assert names.get(a["slug"]) == "operator" and "standalone" in names
     # B is hidden only while override "none" exists (may be reset by previous test) -> check A env visible

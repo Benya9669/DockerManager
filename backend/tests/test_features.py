@@ -78,7 +78,7 @@ def test_metrics_sampler_and_api(client, auth, monkeypatch):
                     "memory_stats": {"usage": 5000, "limit": 100000, "stats": {"inactive_file": 1000}},
                     "networks": {"eth0": {"rx_bytes": 100 * n, "tx_bytes": 50 * n}}}
 
-    monkeypatch.setattr(metrics, "api", lambda: FakeAPI())
+    monkeypatch.setattr(metrics, "api", lambda *a, **k: FakeAPI())
     metrics.sample_once()
     metrics.sample_once()
     series = metrics.container_series(1, project="shop-m")

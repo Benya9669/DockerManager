@@ -10,6 +10,7 @@ from ..db import SessionLocal
 from ..access import level, role_for_slug, roles_by_slug
 from ..deps import audit, require, ws_user
 from ..dockerc import api, list_containers
+from .. import servers
 from ..jobs import runner
 from ..models import User
 from ..textfiles import text_download
@@ -17,6 +18,11 @@ from ..db import get_db
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/docker", tags=["docker"])
+
+
+def _ws_server(ws: WebSocket) -> int | None:
+    v = ws.query_params.get("server_id")
+    return int(v) if v and v.isdigit() else None
 
 
 def _err(e: Exception):
@@ -29,9 +35,9 @@ def _err(e: Exception):
 
 # ---------- system ----------
 @router.get("/info")
-def info(_: User = Depends(require("viewer"))):
-    i = api().info()
-    v = api().version()
+def info(_: User = Depends(require("viewer")), server_id: int | None = None):
+    i = api(server_id).info()
+    v = api(server_id).version()
     return {
         "server_version": v.get("Version"), "api_version": v.get("ApiVersion"), "os": i.get("OperatingSystem"),
         "arch": i.get("Architecture"), "cpus": i.get("NCPU"), "mem_total": i.get("MemTotal"),
@@ -41,8 +47,8 @@ def info(_: User = Depends(require("viewer"))):
 
 
 @router.get("/df")
-def disk_usage(_: User = Depends(require("viewer"))):
-    d = api().df()
+def disk_usage(_: User = Depends(require("viewer")), server_id: int | None = None):
+    d = api(server_id).df()
     def total(items, key="Size"):
         return sum((x.get(key) or 0) for x in (items or []))
     images = d.get("Images") or []
@@ -85,23 +91,23 @@ def prune_steps(o: PruneIn) -> list[tuple[str, list[str]]]:
 
 
 @router.post("/prune")
-def prune(data: PruneIn, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+def prune(data: PruneIn, user: User = Depends(require("admin")), db: Session = Depends(get_db), server_id: int | None = None):
     steps = prune_steps(data)
     if not steps:
         raise HTTPException(400, "Nothing selected")
     audit(db, user, "docker.prune", "", data.model_dump_json())
-    return {"job_id": runner.start(action="docker.prune", steps=steps, username=user.username)}
+    return {"job_id": runner.start(action="docker.prune", steps=steps, username=user.username, env=servers.env_for(server_id))}
 
 
 # ---------- containers ----------
-def container_access(db: Session, user: User, cid: str, need: str = "viewer") -> dict:
+def container_access(db: Session, user: User, cid: str, need: str = "viewer", server_id: int | None = None) -> dict:
     """Inspect a container and check the user's role in the panel project it belongs to."""
     try:
-        info = api().inspect_container(cid)
+        info = api(server_id).inspect_container(cid)
     except Exception as e:  # noqa: BLE001
         _err(e)
     slug = ((info.get("Config") or {}).get("Labels") or {}).get("com.docker.compose.project")
-    role = role_for_slug(db, user, slug)
+    role = role_for_slug(db, user, slug, server_id)
     if level(role) < level("viewer"):
         raise HTTPException(404, "Container not found")
     if level(role) < level(need):
@@ -111,10 +117,10 @@ def container_access(db: Session, user: User, cid: str, need: str = "viewer") ->
 
 
 @router.get("/containers")
-def containers(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-    roles = roles_by_slug(db, user)
+def containers(user: User = Depends(require("viewer")), db: Session = Depends(get_db), server_id: int | None = None):
+    roles = roles_by_slug(db, user, server_id)
     out = []
-    for c in list_containers():
+    for c in list_containers(server_id=server_id):
         role = roles.get(c["project"], user.role) if c["project"] else user.role
         if level(role) >= level("viewer"):
             out.append({**c, "my_role": role})
@@ -122,8 +128,8 @@ def containers(user: User = Depends(require("viewer")), db: Session = Depends(ge
 
 
 @router.get("/containers/{cid}")
-def inspect_container(cid: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-    data = container_access(db, user, cid)
+def inspect_container(cid: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db), server_id: int | None = None):
+    data = container_access(db, user, cid, server_id=server_id)
     if level(data["_my_role"]) < level("operator"):
         # env vars usually hold secrets (DB passwords, API keys) — hide from viewers
         if isinstance(data.get("Config"), dict):
@@ -134,11 +140,11 @@ def inspect_container(cid: str, user: User = Depends(require("viewer")), db: Ses
 
 @router.get("/containers/{cid}/logs/download")
 def download_container_logs(cid: str, tail: str = "all", timestamps: int = 0, grep: str | None = None,
-                            user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-    container_access(db, user, cid)
+                            user: User = Depends(require("viewer")), db: Session = Depends(get_db), server_id: int | None = None):
+    container_access(db, user, cid, server_id=server_id)
     try:
-        info = api().inspect_container(cid)
-        raw = api().logs(cid, stdout=True, stderr=True, timestamps=bool(timestamps),
+        info = api(server_id).inspect_container(cid)
+        raw = api(server_id).logs(cid, stdout=True, stderr=True, timestamps=bool(timestamps),
                          tail=int(tail) if tail.isdigit() else "all")
     except Exception as e:  # noqa: BLE001
         _err(e)
@@ -146,10 +152,10 @@ def download_container_logs(cid: str, tail: str = "all", timestamps: int = 0, gr
 
 
 @router.get("/containers/{cid}/stats")
-def container_stats(cid: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-    container_access(db, user, cid)
+def container_stats(cid: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db), server_id: int | None = None):
+    container_access(db, user, cid, server_id=server_id)
     try:
-        s = api().stats(cid, stream=False)
+        s = api(server_id).stats(cid, stream=False)
     except Exception as e:  # noqa: BLE001
         _err(e)
     cpu = mem = mem_limit = 0.0
@@ -166,9 +172,9 @@ def container_stats(cid: str, user: User = Depends(require("viewer")), db: Sessi
 
 
 @router.post("/containers/{cid}/{action}")
-def container_action(cid: str, action: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-    container_access(db, user, cid, "operator")
-    a = api()
+def container_action(cid: str, action: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db), server_id: int | None = None):
+    container_access(db, user, cid, "operator", server_id=server_id)
+    a = api(server_id)
     try:
         if action == "start":
             a.start(cid)
@@ -219,11 +225,12 @@ async def _pump(ws: WebSocket, q: asyncio.Queue, on_input=None) -> None:
 
 @router.websocket("/containers/{cid}/logs")
 async def ws_logs(ws: WebSocket, cid: str):
+    server_id = _ws_server(ws)
     db = SessionLocal()
     user = ws_user(ws, db)
     if user:
         try:
-            container_access(db, user, cid)
+            container_access(db, user, cid, server_id=server_id)
         except HTTPException:
             user = None
     db.close()
@@ -239,7 +246,7 @@ async def ws_logs(ws: WebSocket, cid: str):
 
     def worker():
         try:
-            stream = api().logs(cid, stream=True, follow=True, tail=int(tail) if tail.isdigit() else "all", timestamps=timestamps)
+            stream = api(server_id).logs(cid, stream=True, follow=True, tail=int(tail) if tail.isdigit() else "all", timestamps=timestamps)
             holder["stream"] = stream
             for chunk in stream:
                 loop.call_soon_threadsafe(q.put_nowait, chunk.decode("utf-8", errors="replace"))
@@ -268,11 +275,12 @@ async def ws_logs(ws: WebSocket, cid: str):
 
 @router.websocket("/containers/{cid}/exec")
 async def ws_exec(ws: WebSocket, cid: str):
+    server_id = _ws_server(ws)
     db = SessionLocal()
     user = ws_user(ws, db)
     if user:
         try:
-            container_access(db, user, cid, "operator")
+            container_access(db, user, cid, "operator", server_id=server_id)
             audit(db, user, "container.exec", cid[:12], ws.query_params.get("cmd", ""))
         except HTTPException:
             user = None
@@ -282,7 +290,7 @@ async def ws_exec(ws: WebSocket, cid: str):
         return
     await ws.accept()
     cmd = ws.query_params.get("cmd") or "command -v bash >/dev/null 2>&1 && exec bash || exec sh"
-    a = api()
+    a = api(server_id)
     try:
         exec_id = a.exec_create(cid, ["/bin/sh", "-c", cmd], tty=True, stdin=True, stdout=True, stderr=True,
                                 environment={"TERM": "xterm-256color"})["Id"]
@@ -342,11 +350,11 @@ class PullIn(BaseModel):
 
 
 @router.get("/images")
-def images(_: User = Depends(require("viewer"))):
-    used = {c["image"] for c in list_containers()}
-    used_ids = {c.get("ImageID") for c in api().containers(all=True)}
+def images(_: User = Depends(require("viewer")), server_id: int | None = None):
+    used = {c["image"] for c in list_containers(server_id=server_id)}
+    used_ids = {c.get("ImageID") for c in api(server_id).containers(all=True)}
     res = []
-    for i in api().images():
+    for i in api(server_id).images():
         tags = i.get("RepoTags") or []
         tags = [t for t in tags if t != "<none>:<none>"]
         res.append({
@@ -360,16 +368,17 @@ def images(_: User = Depends(require("viewer"))):
 
 
 @router.post("/images/pull")
-def pull_image(data: PullIn, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def pull_image(data: PullIn, user: User = Depends(require("operator")), db: Session = Depends(get_db), server_id: int | None = None):
     audit(db, user, "image.pull", data.image)
-    jid = runner.start(action=f"image.pull:{data.image}", steps=[(f"docker pull {data.image}", ["docker", "pull", data.image])], username=user.username)
+    jid = runner.start(action=f"image.pull:{data.image}", steps=[(f"docker pull {data.image}", ["docker", "pull", data.image])], username=user.username,
+                       env=servers.env_for(server_id))
     return {"job_id": jid}
 
 
 @router.delete("/images/{image_id}")
-def remove_image(image_id: str, force: bool = False, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+def remove_image(image_id: str, force: bool = False, user: User = Depends(require("admin")), db: Session = Depends(get_db), server_id: int | None = None):
     try:
-        api().remove_image(image_id, force=force)
+        api(server_id).remove_image(image_id, force=force)
     except Exception as e:  # noqa: BLE001
         _err(e)
     audit(db, user, "image.remove", image_id[:24])
@@ -378,13 +387,13 @@ def remove_image(image_id: str, force: bool = False, user: User = Depends(requir
 
 # ---------- volumes ----------
 @router.get("/volumes")
-def volumes(_: User = Depends(require("viewer"))):
+def volumes(_: User = Depends(require("viewer")), server_id: int | None = None):
     used: set[str] = set()
-    for c in api().containers(all=True):
+    for c in api(server_id).containers(all=True):
         for m in c.get("Mounts") or []:
             if m.get("Type") == "volume":
                 used.add(m.get("Name"))
-    vols = api().volumes().get("Volumes") or []
+    vols = api(server_id).volumes().get("Volumes") or []
     return [
         {
             "name": v["Name"], "driver": v.get("Driver"), "mountpoint": v.get("Mountpoint"),
@@ -396,9 +405,9 @@ def volumes(_: User = Depends(require("viewer"))):
 
 
 @router.delete("/volumes/{name}")
-def remove_volume(name: str, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+def remove_volume(name: str, user: User = Depends(require("admin")), db: Session = Depends(get_db), server_id: int | None = None):
     try:
-        api().remove_volume(name)
+        api(server_id).remove_volume(name)
     except Exception as e:  # noqa: BLE001
         _err(e)
     audit(db, user, "volume.remove", name)
@@ -407,7 +416,7 @@ def remove_volume(name: str, user: User = Depends(require("admin")), db: Session
 
 # ---------- networks ----------
 @router.get("/networks")
-def networks(_: User = Depends(require("viewer"))):
+def networks(_: User = Depends(require("viewer")), server_id: int | None = None):
     return [
         {
             "id": n["Id"], "short_id": n["Id"][:12], "name": n["Name"], "driver": n.get("Driver"),
@@ -416,14 +425,14 @@ def networks(_: User = Depends(require("viewer"))):
             "project": (n.get("Labels") or {}).get("com.docker.compose.project"),
             "builtin": n["Name"] in ("bridge", "host", "none"),
         }
-        for n in api().networks()
+        for n in api(server_id).networks()
     ]
 
 
 @router.delete("/networks/{nid}")
-def remove_network(nid: str, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+def remove_network(nid: str, user: User = Depends(require("admin")), db: Session = Depends(get_db), server_id: int | None = None):
     try:
-        api().remove_network(nid)
+        api(server_id).remove_network(nid)
     except Exception as e:  # noqa: BLE001
         _err(e)
     audit(db, user, "network.remove", nid[:12])

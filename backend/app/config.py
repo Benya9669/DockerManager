@@ -51,6 +51,9 @@ class Settings:
         # Scheduled cleanup
         self.auto_prune_hours = float(env("DM_AUTO_PRUNE_INTERVAL_HOURS", "0") or 0)
         self.auto_prune_older_than = _int("DM_AUTO_PRUNE_OLDER_THAN_HOURS", 72)
+        # Remote servers: write host aliases with the selected key into <ssh dir>/dm_servers.conf
+        # (enable when the SSH dir belongs to the panel, e.g. /root/.ssh in the container)
+        self.manage_ssh_config = _bool("DM_MANAGE_SSH_CONFIG", False)
         # Monitoring
         self.metrics_interval = _int("DM_METRICS_INTERVAL", 30)  # seconds, 0 = off
         self.metrics_retention_hours = _int("DM_METRICS_RETENTION_HOURS", 24)

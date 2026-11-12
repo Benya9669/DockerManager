@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { useServer, withServer } from "../server";
 import { JobPanel } from "../JobPanel";
 import { ActionButton, Loading, fmtAgo, fmtBytes, toast, useFetch } from "../ui";
 
 export function ImagesPage() {
   const { can } = useAuth();
-  const list = useFetch<any[]>(() => api("/docker/images"), [], 15000);
+  const { serverId } = useServer();
+  const list = useFetch<any[]>(() => api(withServer("/docker/images", serverId)), [serverId], 15000);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("all");
   const [pull, setPull] = useState("");
@@ -30,7 +32,7 @@ export function ImagesPage() {
             <form className="row" onSubmit={async (e) => {
               e.preventDefault();
               if (!pull) return;
-              const r = await api("/docker/images/pull", { body: { image: pull } });
+              const r = await api(withServer("/docker/images/pull", serverId), { body: { image: pull } });
               setJob(r.job_id);
             }}>
               <input placeholder="nginx:alpine" value={pull} onChange={(e) => setPull(e.target.value)} />
@@ -55,7 +57,7 @@ export function ImagesPage() {
               <td className="actions">
                 {can("admin") && (
                   <ActionButton className="btn sm danger" confirm={`Удалить образ ${i.tags[0] || i.short_id}?`} onClick={async () => {
-                    await api(`/docker/images/${encodeURIComponent(i.id)}?force=${i.tags.length > 1 ? "true" : "false"}`, { method: "DELETE" });
+                    await api(withServer(`/docker/images/${encodeURIComponent(i.id)}?force=${i.tags.length > 1 ? "true" : "false"}`, serverId), { method: "DELETE" });
                     toast("Образ удалён");
                     list.reload();
                   }}>🗑</ActionButton>
@@ -71,7 +73,8 @@ export function ImagesPage() {
 
 export function VolumesPage() {
   const { can } = useAuth();
-  const list = useFetch<any[]>(() => api("/docker/volumes"), [], 15000);
+  const { serverId } = useServer();
+  const list = useFetch<any[]>(() => api(withServer("/docker/volumes", serverId)), [serverId], 15000);
   return (
     <div>
       <div className="page-head"><h1>Тома</h1></div>
@@ -89,7 +92,7 @@ export function VolumesPage() {
               <td className="actions">
                 {can("admin") && !v.in_use && (
                   <ActionButton className="btn sm danger" confirm={`Удалить том ${v.name}? ДАННЫЕ БУДУТ ПОТЕРЯНЫ.`} onClick={async () => {
-                    await api(`/docker/volumes/${encodeURIComponent(v.name)}`, { method: "DELETE" });
+                    await api(withServer(`/docker/volumes/${encodeURIComponent(v.name)}`, serverId), { method: "DELETE" });
                     list.reload();
                   }}>🗑</ActionButton>
                 )}
@@ -104,7 +107,8 @@ export function VolumesPage() {
 
 export function NetworksPage() {
   const { can } = useAuth();
-  const list = useFetch<any[]>(() => api("/docker/networks"), [], 15000);
+  const { serverId } = useServer();
+  const list = useFetch<any[]>(() => api(withServer("/docker/networks", serverId)), [serverId], 15000);
   return (
     <div>
       <div className="page-head"><h1>Сети</h1></div>
@@ -122,7 +126,7 @@ export function NetworksPage() {
               <td className="actions">
                 {can("admin") && !n.builtin && (
                   <ActionButton className="btn sm danger" confirm={`Удалить сеть ${n.name}?`} onClick={async () => {
-                    await api(`/docker/networks/${n.id}`, { method: "DELETE" });
+                    await api(withServer(`/docker/networks/${n.id}`, serverId), { method: "DELETE" });
                     list.reload();
                   }}>🗑</ActionButton>
                 )}

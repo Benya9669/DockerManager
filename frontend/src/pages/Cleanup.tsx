@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { useServer, withServer } from "../server";
 import { JobPanel } from "../JobPanel";
 import { HostMonitoring } from "../Monitoring";
 import { ActionButton, Loading, fmtAgo, fmtBytes, useFetch } from "../ui";
 
 export function CleanupPage() {
   const { can } = useAuth();
-  const info = useFetch<any>(() => api("/docker/info"), []);
-  const df = useFetch<any>(() => api("/docker/df"), []);
+  const { serverId } = useServer();
+  const info = useFetch<any>(() => api(withServer("/docker/info", serverId)), [serverId]);
+  const df = useFetch<any>(() => api(withServer("/docker/df", serverId)), [serverId]);
   const [o, setO] = useState({
     containers: true, images: true, all_images: false, build_cache: true, networks: true, volumes: false, older_than_hours: 24,
   });
@@ -41,7 +43,7 @@ export function CleanupPage() {
         </div>
       )}
       {!df.data && !df.error && <div className="muted small">Подсчёт места на диске…</div>}
-      <HostMonitoring />
+      {serverId == null ? <HostMonitoring /> : <div className="hint">История нагрузки хоста доступна для локального сервера; метрики контейнеров удалённых серверов — на вкладке «Мониторинг» проектов.</div>}
 
       {can("admin") ? (
         <div className="card form">
@@ -63,7 +65,7 @@ export function CleanupPage() {
           <div className="hint">Автоочистку по расписанию можно включить переменными DM_AUTO_PRUNE_INTERVAL_HOURS и DM_AUTO_PRUNE_OLDER_THAN_HOURS.</div>
           <div className="row end">
             <ActionButton className="btn danger" confirm={o.volumes ? "Будут удалены неиспользуемые ТОМА с данными. Продолжить?" : "Запустить очистку?"}
-              onClick={async () => setJob((await api("/docker/prune", { body: o })).job_id)}>🧹 Запустить очистку</ActionButton>
+              onClick={async () => setJob((await api(withServer("/docker/prune", serverId), { body: o })).job_id)}>🧹 Запустить очистку</ActionButton>
           </div>
         </div>
       ) : (

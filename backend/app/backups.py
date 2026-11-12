@@ -1,12 +1,12 @@
 """Backups of the panel itself, project files and docker volumes.
 
-Volumes are archived by a short-lived helper container (the panel's own image when running in
-Docker, otherwise alpine) that mounts the volume read-only and writes a .tar.gz into the backup dir.
-When the panel runs in a container, the backup dir lives on one of its mounts; the helper mounts
-that same source so the archive lands where the panel can read it.
+Volumes are archived by a short-lived helper container on the volume's docker host (local or a
+remote server) that mounts the volume read-only and streams a .tar.gz to stdout; the panel writes
+it into the backup dir. Restore streams the archive back through stdin.
 """
-import socket
+import os
 import sqlite3
+import subprocess
 import tarfile
 import tempfile
 from datetime import datetime
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from . import compose
+from . import compose, servers
 from .config import settings
 from .db import SessionLocal
 from .dockerc import api
@@ -22,7 +22,7 @@ from .jobs import JobContext
 from .models import Backup, Project
 from .registries import DOCKER_CONFIG_DIR
 
-HELPER_FALLBACK_IMAGE = "alpine:3"
+HELPER_IMAGE = os.getenv("DM_BACKUP_HELPER_IMAGE", "alpine:3")
 
 
 def _stamp() -> str:
@@ -61,27 +61,6 @@ def prune_old(kind: str, target: str) -> None:
     db.close()
 
 
-# ---------- where is the backup dir from Docker's point of view ----------
-def _helper_mount() -> tuple[str, str, str]:
-    """(source for `docker run -v`, path of backup dir inside helper, helper image)."""
-    try:
-        me = api().inspect_container(socket.gethostname())
-    except Exception:  # noqa: BLE001 — not in a container: backup dir is a host path
-        return str(settings.backup_dir), "/backups", HELPER_FALLBACK_IMAGE
-    bdir = settings.backup_dir.as_posix()
-    best = None
-    for m in me.get("Mounts") or []:
-        dest = m.get("Destination", "")
-        if bdir == dest or bdir.startswith(dest.rstrip("/") + "/"):
-            if not best or len(dest) > len(best["Destination"]):
-                best = m
-    if not best:
-        raise RuntimeError(f"Папка бэкапов {bdir} не смонтирована в контейнер панели — архивы потеряются при пересоздании")
-    src = best.get("Name") if best.get("Type") == "volume" else best.get("Source")
-    rel = bdir[len(best["Destination"].rstrip("/")):].lstrip("/")
-    return src, "/host/" + rel if rel else "/host", me.get("Image")
-
-
 # ---------- panel ----------
 def backup_panel(ctx: JobContext, username: str) -> bool:
     name = f"panel-{_stamp()}.tar.gz"
@@ -115,7 +94,7 @@ def backup_panel(ctx: JobContext, username: str) -> bool:
 
 # ---------- project ----------
 def project_volumes(p: Project) -> list[str]:
-    vols = api().volumes(filters={"label": f"com.docker.compose.project={p.slug}"}).get("Volumes") or []
+    vols = api(p.server_id).volumes(filters={"label": f"com.docker.compose.project={p.slug}"}).get("Volumes") or []
     return sorted(v["Name"] for v in vols)
 
 
@@ -135,17 +114,33 @@ def backup_project_files(ctx: JobContext, p: Project, username: str) -> bool:
     return True
 
 
-def backup_volume(ctx: JobContext, volume: str, username: str, project_id: int | None = None) -> bool:
-    src, inner, image = _helper_mount()
+def _denv(server_id: int | None) -> dict[str, str]:
+    return {**os.environ, **servers.env_for(server_id)}
+
+
+def backup_volume(ctx: JobContext, volume: str, username: str, project_id: int | None = None,
+                  server_id: int | None = None) -> bool:
+    """tar the volume inside a helper container on the volume's docker host, stream it here via stdout."""
     name = f"volume-{volume}-{_stamp()}.tar.gz"
-    bid = _record(kind="volume", target=volume, project_id=project_id, filename=name, username=username)
-    rc = ctx.run(["docker", "run", "--rm", "--entrypoint", "tar", "-v", f"{volume}:/v:ro", "-v", f"{src}:/host",
-                  image, "czf", f"{inner}/{name}", "-C", "/v", "."], label=f"архивация тома {volume}")
-    _finish(bid, rc == 0)
-    if rc == 0:
+    bid = _record(kind="volume", target=volume, project_id=project_id, server_id=server_id, filename=name,
+                  username=username)
+    ctx.emit(f"\x1b[36m$ архивация тома {volume}\x1b[0m\n")
+    out = settings.backup_dir / name
+    with open(out, "wb") as fh:
+        proc = subprocess.Popen(["docker", "run", "--rm", "-v", f"{volume}:/v:ro", HELPER_IMAGE,
+                                 "tar", "czf", "-", "-C", "/v", "."],
+                                stdout=fh, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, env=_denv(server_id))
+        ctx.live.proc = proc
+        _, err = proc.communicate()
+    ok = proc.returncode == 0
+    if not ok:
+        ctx.error(err.decode("utf-8", errors="replace").strip() or f"exit {proc.returncode}")
+        out.unlink(missing_ok=True)
+    _finish(bid, ok)
+    if ok:
         prune_old("volume", volume)
-        ctx.ok(f"Том {volume}: {name}")
-    return rc == 0
+        ctx.ok(f"Том {volume}: {name} ({out.stat().st_size // 1024} КБ)")
+    return ok
 
 
 def backup_project(ctx: JobContext, p: Project, username: str, stop: bool) -> bool:
@@ -155,31 +150,43 @@ def backup_project(ctx: JobContext, p: Project, username: str, stop: bool) -> bo
         ctx.info("Именованных томов у проекта нет")
         return ok
     stopped = False
+    denv = servers.docker_env(p)
     if stop:
-        stopped = ctx.run([*compose.base(p), "stop"], cwd=p.path, label="остановка контейнеров на время бэкапа") == 0
+        stopped = ctx.run([*compose.base(p), "stop"], cwd=p.path, env=denv,
+                          label="остановка контейнеров на время бэкапа") == 0
     try:
         for v in vols:
-            ok = backup_volume(ctx, v, username, p.id) and ok
+            ok = backup_volume(ctx, v, username, p.id, p.server_id) and ok
     finally:
         if stopped:
-            ctx.run([*compose.base(p), "start"], cwd=p.path, label="запуск контейнеров")
+            ctx.run([*compose.base(p), "start"], cwd=p.path, env=denv, label="запуск контейнеров")
     return ok
 
 
 def restore_volume(ctx: JobContext, b: Backup, p: Project | None) -> bool:
-    src, inner, image = _helper_mount()
     stopped = False
+    denv = servers.docker_env(p) if p else {}
     if p:
-        stopped = ctx.run([*compose.base(p), "stop"], cwd=p.path, label="остановка контейнеров проекта") == 0
+        stopped = ctx.run([*compose.base(p), "stop"], cwd=p.path, env=denv, label="остановка контейнеров проекта") == 0
     try:
-        script = f"find /v -mindepth 1 -delete && tar xzf {inner}/{b.filename} -C /v"
-        rc = ctx.run(["docker", "run", "--rm", "--entrypoint", "sh", "-v", f"{b.target}:/v", "-v", f"{src}:/host:ro",
-                      image, "-c", script], label=f"восстановление тома {b.target} из {b.filename}")
+        ctx.emit(f"\x1b[36m$ восстановление тома {b.target} из {b.filename}\x1b[0m\n")
+        with open(settings.backup_dir / b.filename, "rb") as fh:
+            proc = subprocess.Popen(["docker", "run", "--rm", "-i", "-v", f"{b.target}:/v", HELPER_IMAGE,
+                                     "sh", "-c", "find /v -mindepth 1 -delete && tar xzf - -C /v"],
+                                    stdin=fh, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    env=_denv(b.server_id))
+            ctx.live.proc = proc
+            out, _ = proc.communicate()
+        if out:
+            ctx.emit(out.decode("utf-8", errors="replace"))
+        rc = proc.returncode
     finally:
         if stopped:
-            ctx.run([*compose.base(p), "start"], cwd=p.path, label="запуск контейнеров")
+            ctx.run([*compose.base(p), "start"], cwd=p.path, env=denv, label="запуск контейнеров")
     if rc == 0:
         ctx.ok("Том восстановлен")
+    else:
+        ctx.error(f"exit {rc}")
     return rc == 0
 
 

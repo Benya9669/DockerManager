@@ -15,7 +15,7 @@ from sqlalchemy import delete, select
 from .config import settings
 from .db import SessionLocal
 from .dockerc import api
-from .models import ContainerMetric, HostMetric
+from .models import ContainerMetric, HostMetric, Server
 
 log = logging.getLogger("dockermanager.metrics")
 
@@ -23,29 +23,30 @@ _prev_cpu: dict[str, tuple[int, int]] = {}  # container -> (total_usage, system_
 _prev_host: tuple[int, int] | None = None  # (idle, total) jiffies from /proc/stat
 
 
-def _container_sample(c: dict) -> dict | None:
+def _container_sample(c: dict, server_id: int | None = None) -> dict | None:
     try:
-        s = api().stats(c["Id"], stream=False, one_shot=True)
+        s = api(server_id).stats(c["Id"], stream=False, one_shot=True)
     except TypeError:  # old docker SDK without one_shot
-        s = api().stats(c["Id"], stream=False)
+        s = api(server_id).stats(c["Id"], stream=False)
     except Exception:  # noqa: BLE001 — container stopped meanwhile
         return None
     cid = c["Id"][:12]
+    key = f"{server_id}:{cid}"
     cpu_stats = s.get("cpu_stats") or {}
     total = (cpu_stats.get("cpu_usage") or {}).get("total_usage", 0)
     system = cpu_stats.get("system_cpu_usage", 0)
     ncpu = cpu_stats.get("online_cpus") or 1
     cpu = 0.0
-    prev = _prev_cpu.get(cid)
+    prev = _prev_cpu.get(key)
     if prev and system > prev[1]:
         cpu = (total - prev[0]) / (system - prev[1]) * ncpu * 100
-    _prev_cpu[cid] = (total, system)
+    _prev_cpu[key] = (total, system)
     mem_stats = s.get("memory_stats") or {}
     mem = mem_stats.get("usage", 0) - (mem_stats.get("stats") or {}).get("inactive_file", 0)
     nets = s.get("networks") or {}
     labels = c.get("Labels") or {}
     return {
-        "container": cid, "name": (c.get("Names") or ["/?"])[0].lstrip("/"),
+        "server_id": server_id, "container": cid, "name": (c.get("Names") or ["/?"])[0].lstrip("/"),
         "project": labels.get("com.docker.compose.project", ""), "cpu": round(max(cpu, 0), 2),
         "mem": max(mem, 0), "mem_limit": mem_stats.get("limit", 0),
         "net_rx": sum(n.get("rx_bytes", 0) for n in nets.values()),
@@ -86,12 +87,18 @@ def _host_sample() -> dict:
 def sample_once() -> None:
     now = int(time.time())
     rows = []
+    db = SessionLocal()
     try:
-        running = api().containers(filters={"status": "running"})
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            rows = [r for r in pool.map(_container_sample, running) if r]
-    except Exception as e:  # noqa: BLE001
-        log.debug("container metrics skipped: %s", e)
+        server_ids: list[int | None] = [None, *db.scalars(select(Server.id))]
+    finally:
+        db.close()
+    for sid in server_ids:
+        try:
+            running = api(sid).containers(filters={"status": "running"})
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                rows += [r for r in pool.map(lambda c, s=sid: _container_sample(c, s), running) if r]
+        except Exception as e:  # noqa: BLE001  (host down / no docker)
+            log.debug("container metrics skipped for server %s: %s", sid, e)
     host = _host_sample()
     db = SessionLocal()
     try:
@@ -138,9 +145,12 @@ def host_series(hours: float) -> list[dict]:
                      "disk_used": r.disk_used, "disk_total": r.disk_total} for r in rows])
 
 
-def container_series(hours: float, project: str | None = None, container: str | None = None) -> list[dict]:
+def container_series(hours: float, project: str | None = None, container: str | None = None,
+                     server_id: int | None = None) -> list[dict]:
     since = int(time.time() - hours * 3600)
-    q = select(ContainerMetric).where(ContainerMetric.ts >= since).order_by(ContainerMetric.ts)
+    q = select(ContainerMetric).where(ContainerMetric.ts >= since,
+                                      ContainerMetric.server_id.is_(None) if server_id is None
+                                      else ContainerMetric.server_id == server_id).order_by(ContainerMetric.ts)
     if project:
         q = q.where(ContainerMetric.project == project)
     if container:

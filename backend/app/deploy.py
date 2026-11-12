@@ -27,7 +27,7 @@ def _head(p: Project) -> str:
 
 
 def _containers(p: Project) -> list[dict]:
-    return api().containers(all=True, filters={"label": f"com.docker.compose.project={p.slug}"})
+    return api(p.server_id).containers(all=True, filters={"label": f"com.docker.compose.project={p.slug}"})
 
 
 def snapshot(p: Project) -> dict:
@@ -68,7 +68,7 @@ def check_health(p: Project) -> tuple[str, list[str], int]:
         return "fail", ["контейнеры проекта не найдены"], 0
     state, msgs, restarts = "ok", [], 0
     for c in cs:
-        info = api().inspect_container(c["Id"])
+        info = api(p.server_id).inspect_container(c["Id"])
         st = info.get("State") or {}
         name = info.get("Name", "?").lstrip("/")
         restarts += info.get("RestartCount") or 0
@@ -173,12 +173,12 @@ def apply_snapshot(ctx: JobContext, p: Project, snap: dict) -> bool:
         if not tag:
             continue
         try:
-            current = api().inspect_image(ref)["Id"]
+            current = api(p.server_id).inspect_image(ref)["Id"]
         except Exception:  # noqa: BLE001
             current = None
         if current != iid:
             try:
-                api().tag(iid, repo, tag)
+                api(p.server_id).tag(iid, repo, tag)
                 ctx.info(f"  образ {ref} → {iid[7:19]}")
             except Exception as e:  # noqa: BLE001
                 ctx.error(f"  не удалось вернуть образ {ref}: {e}")
