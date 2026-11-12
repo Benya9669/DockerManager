@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { JobPanel } from "../JobPanel";
-import { ActionButton, Loading, fmtBytes, useFetch } from "../ui";
+import { ActionButton, Loading, fmtAgo, fmtBytes, useFetch } from "../ui";
 
 export function CleanupPage() {
   const { can } = useAuth();
@@ -23,6 +23,7 @@ export function CleanupPage() {
   return (
     <div className="stack">
       <div className="page-head"><h1>Система и очистка</h1></div>
+      {can("admin") && <UpdateCard />}
       <Loading error={info.error} loading={info.loading && !info.data} />
       {info.data && (
         <div className="grid stats-grid">
@@ -67,6 +68,83 @@ export function CleanupPage() {
         <div className="muted">Очистка доступна администраторам.</div>
       )}
       {job && <JobPanel jobId={job} title="Очистка" onClose={() => setJob(null)} onDone={() => { df.reload(); info.reload(); }} height={260} />}
+    </div>
+  );
+}
+
+function UpdateCard() {
+  const st = useFetch<any>(() => api("/system/update"), []);
+  const [job, setJob] = useState<number | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [notes, setNotes] = useState(false);
+
+  const waitForRestart = (oldVersion: string) => {
+    setRestarting(true);
+    let sawDown = false;
+    const started = Date.now();
+    const t = setInterval(async () => {
+      try {
+        const v = await api("/version");
+        if (sawDown || v.version !== oldVersion || Date.now() - started > 15 * 60_000) {
+          clearInterval(t);
+          location.reload();
+        }
+      } catch {
+        sawDown = true;
+      }
+    }, 3000);
+  };
+
+  const run = async (force: boolean) => {
+    const r = await api("/system/update", { body: { force } });
+    setJob(r.job_id);
+    waitForRestart(st.data.current);
+  };
+
+  if (!st.data) return <Loading error={st.error} loading={st.loading} />;
+  const s = st.data;
+  const lc = s.last_check || {};
+  const latest = lc.latest;
+
+  return (
+    <div className="card stack-sm">
+      <div className="row between wrap">
+        <div className="stack-sm">
+          <h3>Версия панели</h3>
+          <div>
+            Текущая: <b>v{s.current}</b>{s.git_sha && <span className="muted mono small"> {s.git_sha.slice(0, 7)}</span>}
+            {" · "}последняя: {latest ? <a href={latest.url} target="_blank" rel="noreferrer"><b>v{latest.version}</b></a> : <span className="muted">релизов нет</span>}
+            {lc.update_available && <span className="badge yellow" style={{ marginLeft: 8 }}>доступно обновление</span>}
+            {latest && !lc.update_available && <span className="badge green" style={{ marginLeft: 8 }}>актуальная</span>}
+          </div>
+          <div className="muted small">
+            Режим: <b>{s.mode === "image" ? "образ из GHCR" : "git pull + сборка"}</b> · репозиторий {s.repo} ·
+            автообновление: <b>{s.auto_update ? `вкл (раз в ${s.check_hours} ч)` : "выкл"}</b>
+            {lc.checked_at && <> · проверено {fmtAgo(lc.checked_at)}</>}
+          </div>
+          {lc.error && <div className="danger-text small">Ошибка проверки: {lc.error}</div>}
+          {!s.can_update && <div className="danger-text small">{s.reason}</div>}
+        </div>
+        <div className="row wrap">
+          <ActionButton onClick={async () => st.setData(await api("/system/update?refresh=true"))}>Проверить</ActionButton>
+          {latest?.notes && <button className="btn" onClick={() => setNotes(!notes)}>Что нового</button>}
+          <ActionButton className="btn primary" disabled={!s.can_update || !lc.update_available || restarting}
+            confirm={`Обновить панель до v${latest?.version}? Панель перезапустится.`} onClick={() => run(false)}>
+            ⬆ Обновить
+          </ActionButton>
+          <ActionButton className="btn ghost" disabled={!s.can_update || restarting}
+            confirm={s.mode === "image" ? "Скачать образ заново и перезапустить панель?" : "Выполнить git pull и пересобрать панель, даже если версия не изменилась?"}
+            onClick={() => run(true)}>Принудительно</ActionButton>
+        </div>
+      </div>
+      {notes && latest?.notes && <pre className="small">{latest.notes}</pre>}
+      {restarting && (
+        <div className="hint">
+          Панель обновляется и перезапустится, страница перезагрузится сама. Ход обновления:{" "}
+          {s.updater_name && <span className="mono">docker logs -f {s.updater_name}</span>}
+        </div>
+      )}
+      {job && <JobPanel jobId={job} title="Обновление панели" height={140} />}
     </div>
   );
 }

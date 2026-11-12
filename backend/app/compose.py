@@ -11,8 +11,8 @@ def compose_files(p: Project) -> list[str]:
     return [f.strip() for f in (p.compose_files or "").split(",") if f.strip()]
 
 
-def base(p: Project) -> list[str]:
-    args = ["docker", "compose", "--ansi", "never", "-p", p.slug]
+def base(p: Project, ansi: str = "never") -> list[str]:
+    args = ["docker", "compose", "--ansi", ansi, "-p", p.slug]
     for f in compose_files(p):
         args += ["-f", f]
     if p.env_file:

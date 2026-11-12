@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api } from "../api";
+import { api, wsUrl } from "../api";
+import { XTerm } from "../XTerm";
 import { useAuth } from "../auth";
 import { Editor } from "../Editor";
 import { JobPanel } from "../JobPanel";
@@ -71,6 +72,7 @@ export function ProjectPage() {
         onChange={changeTab}
         tabs={[
           ["overview", "Сервисы"],
+          ["logs", "Логи"],
           ...(can("operator") ? ([["env", "Переменные (.env)"], ["files", "Файлы"]] as [string, string][]) : []),
           ...(p.source === "git" ? ([["git", "Git"]] as [string, string][]) : []),
           ["jobs", "История"],
@@ -79,6 +81,7 @@ export function ProjectPage() {
       />
       <div className="tab-body">
         {tab === "overview" && <ServicesTab p={p} runAction={runAction} refreshKey={refreshKey} />}
+        {tab === "logs" && <ProjectLogs p={p} />}
         {tab === "env" && <EnvTab p={p} onChange={proj.reload} />}
         {tab === "files" && <FilesTab p={p} />}
         {tab === "git" && <GitTab p={p} startJob={startJob} refreshKey={refreshKey} />}
@@ -199,6 +202,41 @@ function ServicesTab({ p, runAction, refreshKey }: { p: any; runAction: any; ref
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// ---------- Logs (all services) ----------
+function ProjectLogs({ p }: { p: any }) {
+  const s = useFetch<any>(() => api(`/projects/${p.id}/services`), [p.id]);
+  const names: string[] = (s.data?.services || []).map((x: any) => x.name);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [tail, setTail] = useState("200");
+  const [ts, setTs] = useState(false);
+  const [key, setKey] = useState(0);
+  const toggle = (n: string) => setSelected((cur) => (cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n]));
+
+  return (
+    <div>
+      <div className="row wrap mb">
+        <span className="muted">Сервисы:</span>
+        <button className={`btn sm ${selected.length === 0 ? "primary" : ""}`} onClick={() => setSelected([])}>все</button>
+        {names.map((n) => (
+          <button key={n} className={`btn sm ${selected.includes(n) ? "primary" : ""}`} onClick={() => toggle(n)}>{n}</button>
+        ))}
+        <span className="muted">строк:</span>
+        <select value={tail} onChange={(e) => setTail(e.target.value)}>
+          {["50", "200", "1000", "5000", "all"].map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <label className="check"><input type="checkbox" checked={ts} onChange={(e) => setTs(e.target.checked)} />время</label>
+        <button className="btn sm" onClick={() => setKey((k) => k + 1)}>Переподключить</button>
+      </div>
+      <XTerm
+        key={key}
+        url={wsUrl(`/projects/${p.id}/logs`, { tail, timestamps: ts ? "1" : "0", services: selected.join(",") })}
+        mode="stream"
+        height="68vh"
+      />
     </div>
   );
 }

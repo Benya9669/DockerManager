@@ -51,6 +51,13 @@ class Settings:
         # Scheduled cleanup
         self.auto_prune_hours = float(env("DM_AUTO_PRUNE_INTERVAL_HOURS", "0") or 0)
         self.auto_prune_older_than = _int("DM_AUTO_PRUNE_OLDER_THAN_HOURS", 72)
+        # Self-update
+        self.update_repo = env("DM_UPDATE_REPO", "Benya9669/DockerManager")  # GitHub owner/repo with releases
+        self.update_token = env("DM_UPDATE_GITHUB_TOKEN", "")  # needed only for private repos
+        self.update_mode = env("DM_UPDATE_MODE", "git")  # git: git pull + rebuild; image: pull image from GHCR
+        self.update_ssh_key = env("DM_UPDATE_SSH_KEY", "")  # key file name in the SSH dir for git pull of the panel repo
+        self.auto_update = _bool("DM_AUTO_UPDATE", False)
+        self.update_check_hours = float(env("DM_UPDATE_CHECK_HOURS", "6") or 6)
 
     def _load_or_create_secret(self) -> str:
         p = self.data_dir / "secret.key"

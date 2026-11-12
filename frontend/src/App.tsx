@@ -8,12 +8,15 @@ import { ContainersPage, ContainerPage } from "./pages/Containers";
 import { ImagesPage, NetworksPage, VolumesPage } from "./pages/Resources";
 import { JobPage, JobsPage } from "./pages/Jobs";
 import { CleanupPage } from "./pages/Cleanup";
-import { AccountPage, AuditPage, UsersPage } from "./pages/Admin";
+import { AccountPage, AuditPage, RegistriesPage, UsersPage } from "./pages/Admin";
+import { api } from "./api";
+import { useFetch } from "./ui";
 
 const ROLE_RU = { admin: "администратор", operator: "оператор", viewer: "наблюдатель" } as const;
 
 export function App() {
   const { user, ready, logout, can } = useAuth();
+  const ver = useFetch<any>(() => (user ? api("/version") : Promise.resolve(null)), [user?.id]);
   if (!ready) return null;
   if (!user)
     return (
@@ -33,6 +36,7 @@ export function App() {
     ["/networks", "🔗 Сети", true],
     ["/jobs", "⚙️ Задачи", true],
     ["/system", "🧹 Система и очистка", true],
+    ["/registries", "🔐 Реестры", can("admin")],
     ["/users", "👥 Пользователи", can("admin")],
     ["/audit", "📜 Аудит", can("admin")],
   ];
@@ -54,6 +58,11 @@ export function App() {
             <div className="muted small">{ROLE_RU[user.role]}</div>
           </NavLink>
           <button className="btn ghost full" onClick={logout}>Выйти</button>
+          {ver.data && (
+            <div className="muted small center" title={ver.data.git_sha}>
+              v{ver.data.version}{ver.data.git_sha && ` · ${ver.data.git_sha.slice(0, 7)}`}
+            </div>
+          )}
         </div>
       </aside>
       <main className="content">
@@ -68,6 +77,7 @@ export function App() {
           <Route path="/jobs" element={<JobsPage />} />
           <Route path="/jobs/:id" element={<JobPage />} />
           <Route path="/system" element={<CleanupPage />} />
+          <Route path="/registries" element={<RegistriesPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/account" element={<AccountPage />} />

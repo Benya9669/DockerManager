@@ -15,7 +15,10 @@ from .config import settings
 from .db import Base, SessionLocal, engine
 from .jobs import runner
 from .models import Job, User
-from .routers import auth, docker_res, jobs, projects, webhooks
+from . import registries, updater
+from .routers import auth, docker_res, jobs, projects, system, webhooks
+from .routers import registries as registries_router
+from .version import VERSION
 from .security import hash_password
 
 log = logging.getLogger("dockermanager")
@@ -82,6 +85,9 @@ def auto_prune_loop(hours: float, older_than: int) -> None:
 async def lifespan(app: FastAPI):
     runner.loop = asyncio.get_running_loop()
     init_db()
+    registries.activate()
+    updater.start_background()
+    log.info("Docker Manager %s started", VERSION)
     hours = settings.auto_prune_hours
     if hours > 0:
         older = settings.auto_prune_older_than
@@ -91,7 +97,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Docker Manager", lifespan=lifespan)
-for r in (auth.router, projects.router, jobs.router, docker_res.router, webhooks.router):
+for r in (auth.router, projects.router, jobs.router, docker_res.router, webhooks.router,
+          system.router, registries_router.router):
     app.include_router(r)
 
 

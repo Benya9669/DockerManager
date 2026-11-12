@@ -53,6 +53,16 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Registry(Base):
+    """Credentials for private container registries (ghcr.io, gitlab registry, harbor...)."""
+    __tablename__ = "registries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    url: Mapped[str] = mapped_column(String(255), unique=True)  # e.g. ghcr.io
+    username: Mapped[str] = mapped_column(String(255))
+    password_enc: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

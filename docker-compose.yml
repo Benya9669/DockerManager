@@ -1,8 +1,10 @@
 # Docker Manager. Settings are read from .env next to this file (see .env.example).
 services:
   dockermanager:
+    # DM_UPDATE_MODE=git   -> image is built locally from this repo (git pull + build)
+    # DM_UPDATE_MODE=image -> image is pulled from GHCR (published by GitHub Actions)
     build: .
-    image: dockermanager:latest
+    image: ghcr.io/benya9669/dockermanager:${DM_IMAGE_TAG:-latest}
     container_name: dockermanager
     restart: unless-stopped
     ports:
@@ -20,6 +22,12 @@ services:
       DM_ALLOW_LOCAL_PATHS: ${DM_ALLOW_LOCAL_PATHS:-true}
       DM_AUTO_PRUNE_INTERVAL_HOURS: ${DM_AUTO_PRUNE_INTERVAL_HOURS:-0}
       DM_AUTO_PRUNE_OLDER_THAN_HOURS: ${DM_AUTO_PRUNE_OLDER_THAN_HOURS:-72}
+      DM_UPDATE_MODE: ${DM_UPDATE_MODE:-git}
+      DM_UPDATE_REPO: ${DM_UPDATE_REPO:-Benya9669/DockerManager}
+      DM_UPDATE_GITHUB_TOKEN: ${DM_UPDATE_GITHUB_TOKEN:-}
+      DM_UPDATE_SSH_KEY: ${DM_UPDATE_SSH_KEY:-}
+      DM_AUTO_UPDATE: ${DM_AUTO_UPDATE:-false}
+      DM_UPDATE_CHECK_HOURS: ${DM_UPDATE_CHECK_HOURS:-6}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dm-data:/data

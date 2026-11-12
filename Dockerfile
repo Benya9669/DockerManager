@@ -25,6 +25,11 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 COPY --from=ui /ui/dist /app/frontend/dist
+COPY VERSION /app/VERSION
+ARG GIT_SHA=""
+ENV DM_GIT_SHA=$GIT_SHA
+LABEL org.opencontainers.image.source="https://github.com/Benya9669/DockerManager" \
+      org.opencontainers.image.title="Docker Manager"
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

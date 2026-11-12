@@ -140,3 +140,71 @@ export function AccountPage() {
     </div>
   );
 }
+
+export function RegistriesPage() {
+  const list = useFetch<any[]>(() => api("/registries"), []);
+  const [f, setF] = useState({ url: "ghcr.io", username: "", password: "", verify: true });
+  const [show, setShow] = useState(false);
+
+  return (
+    <div>
+      <div className="page-head">
+        <h1>Реестры образов</h1>
+        <button className="btn primary" onClick={() => setShow(true)}>+ Реестр</button>
+      </div>
+      <div className="hint mb">
+        Логины к приватным registry. Используются во всех операциях панели: <b>pull</b>, <b>деплой</b>, <b>up</b>, Pull на странице образов
+        и самообновление в режиме image. Пароли хранятся зашифрованными.<br />
+        <b>GHCR:</b> адрес <span className="mono">ghcr.io</span>, логин — ваш GitHub-логин, пароль — Personal Access Token (classic) с правом <span className="mono">read:packages</span>.
+      </div>
+      <Loading error={list.error} loading={list.loading && !list.data} />
+      {list.data && !list.data.length && <div className="empty">Реестров нет — используются только публичные образы</div>}
+      {!!list.data?.length && (
+        <table className="table">
+          <thead><tr><th>Реестр</th><th>Логин</th><th>Добавлен</th><th /></tr></thead>
+          <tbody>
+            {list.data.map((r) => (
+              <tr key={r.id}>
+                <td className="mono">{r.url}</td>
+                <td>{r.username}</td>
+                <td className="small">{fmtDate(r.created_at)}</td>
+                <td className="actions">
+                  <ActionButton className="btn sm" onClick={async () => {
+                    const p = prompt(`Новый токен/пароль для ${r.url}`);
+                    if (!p) return;
+                    await api(`/registries/${r.id}`, { method: "PATCH", body: { password: p } });
+                    toast("Обновлено, вход проверен");
+                  }}>Сменить токен</ActionButton>
+                  <ActionButton className="btn sm danger" confirm={`Удалить логин к ${r.url}?`} onClick={async () => {
+                    await api(`/registries/${r.id}`, { method: "DELETE" });
+                    list.reload();
+                  }}>🗑</ActionButton>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {show && (
+        <Modal title="Новый реестр" onClose={() => setShow(false)}>
+          <form className="form" onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              await api("/registries", { body: f });
+              toast("Реестр добавлен");
+              setShow(false);
+              setF({ url: "ghcr.io", username: "", password: "", verify: true });
+              list.reload();
+            } catch (err) { toastErr(err); }
+          }}>
+            <label>Адрес реестра<input required value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="ghcr.io, registry.gitlab.com, harbor.company.ru" /></label>
+            <label>Логин<input required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></label>
+            <label>Токен / пароль<input required type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
+            <label className="check"><input type="checkbox" checked={f.verify} onChange={(e) => setF({ ...f, verify: e.target.checked })} />проверить вход (docker login)</label>
+            <div className="row end"><button className="btn primary">Добавить</button></div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}

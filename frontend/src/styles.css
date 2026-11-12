@@ -182,3 +182,4 @@ label.inline { display: flex; align-items: center; gap: 8px; }
   .side-list { width: 100%; }
   .cols { grid-template-columns: 1fr; }
 }
+.center { text-align: center; }

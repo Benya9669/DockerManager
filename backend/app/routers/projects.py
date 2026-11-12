@@ -4,7 +4,12 @@ import shutil
 from collections import Counter
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
+import codecs
+import subprocess
+import threading
+
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,7 +17,7 @@ from sqlalchemy.orm import Session
 from .. import compose, git_ops
 from ..config import settings
 from ..db import SessionLocal, get_db
-from ..deps import audit, get_project, require
+from ..deps import audit, get_project, require, ws_user
 from ..discover import discover_stacks
 from ..dockerc import list_containers
 from ..jobs import BusyError, runner
@@ -559,3 +564,66 @@ def delete_file(project_id: int, path: str = Query(...), user: User = Depends(re
         db.commit()
     audit(db, user, "file.delete", p.slug, path)
     return {"ok": True}
+
+
+# ---------- combined logs of all services ----------
+@router.websocket("/{project_id}/logs")
+async def ws_project_logs(ws: WebSocket, project_id: int):
+    """Stream `docker compose logs -f` for the whole project (or selected services)."""
+    from .docker_res import _pump
+
+    db = SessionLocal()
+    try:
+        user = ws_user(ws, db)
+        p = db.get(Project, project_id)
+    finally:
+        db.close()
+    if not user or not p:
+        await ws.close(code=4401 if not user else 4404)
+        return
+    await ws.accept()
+
+    tail = ws.query_params.get("tail", "200")
+    tail = tail if tail.isdigit() or tail == "all" else "200"
+    services = [s for s in ws.query_params.get("services", "").split(",") if s]
+    args = [*compose.base(p, ansi="always"), "logs", "-f", "--tail", tail]
+    if ws.query_params.get("timestamps") == "1":
+        args.append("--timestamps")
+    args += services
+
+    loop = asyncio.get_running_loop()
+    q: asyncio.Queue = asyncio.Queue()
+    try:
+        proc = subprocess.Popen(args, cwd=p.path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, bufsize=0)
+    except (FileNotFoundError, NotADirectoryError, OSError) as e:
+        await ws.send_text(f"\r\n[error] {e}\r\n")
+        await ws.close()
+        return
+
+    def reader():
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        try:
+            assert proc.stdout is not None
+            while True:
+                data = proc.stdout.read(4096)
+                if not data:
+                    break
+                loop.call_soon_threadsafe(q.put_nowait, decoder.decode(data))
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            loop.call_soon_threadsafe(q.put_nowait, None)
+
+    threading.Thread(target=reader, daemon=True).start()
+    try:
+        await _pump(ws, q)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        try:
+            await ws.close()
+        except RuntimeError:
+            pass
