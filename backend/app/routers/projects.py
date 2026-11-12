@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import compose, deploy, git_ops
+from .. import compose, deploy, git_ops, templates
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..deps import ROLE_LEVEL, audit, get_project, require, ws_user
@@ -23,6 +23,7 @@ from ..dockerc import list_containers
 from ..jobs import BusyError, runner
 from ..models import Deployment, Project, User
 from ..security import encrypt
+from ..textfiles import text_download
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -63,7 +64,8 @@ class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     slug: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]*$", max_length=64)
     description: str = ""
-    source: str = Field(default="git", pattern="^(git|local|empty)$")
+    source: str = Field(default="git", pattern="^(git|local|empty|template)$")
+    template: str = ""
     repo_url: str = ""
     branch: str = ""
     git_username: str = ""
@@ -199,6 +201,11 @@ def check_ssh_key(name: str) -> str:
     return name
 
 
+@router.get("/templates")
+def list_project_templates(_: User = Depends(require("admin"))):
+    return templates.list_templates()
+
+
 @router.get("/ssh-keys")
 def ssh_keys(_: User = Depends(require("operator"))):
     return {"dir": str(settings.ssh_dir), "keys": git_ops.list_ssh_keys()}
@@ -283,6 +290,10 @@ def create_project(data: ProjectIn, user: User = Depends(require("admin")), db: 
 
     if data.source == "git" and not data.repo_url:
         raise HTTPException(400, "repo_url is required")
+    if data.source == "template":
+        if data.template not in templates.TEMPLATES:
+            raise HTTPException(400, "Unknown template")
+        data.env_file = data.env_file or ".env"
 
     p = Project(
         slug=slug, name=data.name, description=data.description,
@@ -298,7 +309,12 @@ def create_project(data: ProjectIn, user: User = Depends(require("admin")), db: 
     audit(db, user, "project.create", slug, f"source={data.source}")
 
     result = project_out(p, user)
-    if data.source == "empty":
+    if data.source == "template":
+        for rel, content in templates.render(data.template).items():
+            f = path / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(content, encoding="utf-8")
+    elif data.source == "empty":
         path.mkdir(parents=True, exist_ok=True)
         cf = path / compose.compose_files(p)[0]
         if not cf.exists():
@@ -681,6 +697,20 @@ def delete_file(project_id: int, path: str = Query(...), user: User = Depends(re
 
 
 # ---------- combined logs of all services ----------
+@router.get("/{project_id}/logs/download")
+def download_project_logs(project_id: int, tail: str = "all", timestamps: int = 0, services: str = "",
+                          grep: str | None = None, _: User = Depends(require("viewer")),
+                          db: Session = Depends(get_db)):
+    p = get_project(db, project_id)
+    tail = tail if tail.isdigit() or tail == "all" else "all"
+    names = [s for s in services.split(",") if re.fullmatch(r"[A-Za-z0-9][\w.-]*", s)]
+    args = ["logs", "--no-color", "--tail", tail, *(["--timestamps"] if timestamps else []), *names]
+    try:
+        r = compose.run(p, *args, timeout=120)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "docker compose logs timed out")
+    return text_download(r.stdout + r.stderr, p.slug, grep)
+
 @router.websocket("/{project_id}/logs")
 async def ws_project_logs(ws: WebSocket, project_id: int):
     """Stream `docker compose logs -f` for the whole project (or selected services)."""

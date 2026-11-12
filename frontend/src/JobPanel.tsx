@@ -30,6 +30,7 @@ export function JobPanel({ jobId, title, onClose, onDone, height = 360 }: {
         key={jobId}
         url={wsUrl(`/jobs/${jobId}/stream`)}
         mode="job"
+        download={{ path: `/jobs/${jobId}/output`, filename: `job-${jobId}.log` }}
         height={height}
         onDone={(s) => {
           setStatus(s);

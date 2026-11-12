@@ -11,6 +11,7 @@ from ..deps import ROLE_LEVEL, audit, require, ws_user
 from ..dockerc import api, list_containers
 from ..jobs import runner
 from ..models import User
+from ..textfiles import text_download
 from ..db import get_db
 from sqlalchemy.orm import Session
 
@@ -109,6 +110,18 @@ def inspect_container(cid: str, user: User = Depends(require("viewer"))):
             data["Config"]["Env"] = ["*** скрыто: нужна роль оператора ***"]
         data.pop("HostConfig", None)
     return data
+
+
+@router.get("/containers/{cid}/logs/download")
+def download_container_logs(cid: str, tail: str = "all", timestamps: int = 0, grep: str | None = None,
+                            _: User = Depends(require("viewer"))):
+    try:
+        info = api().inspect_container(cid)
+        raw = api().logs(cid, stdout=True, stderr=True, timestamps=bool(timestamps),
+                         tail=int(tail) if tail.isdigit() else "all")
+    except Exception as e:  # noqa: BLE001
+        _err(e)
+    return text_download(raw.decode("utf-8", errors="replace"), info.get("Name", cid).lstrip("/"), grep)
 
 
 @router.get("/containers/{cid}/stats")

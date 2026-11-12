@@ -1,34 +1,53 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
-import { openWs } from "./api";
+import { downloadFile, openWs } from "./api";
+import { toastErr } from "./ui";
 
 type Mode = "job" | "stream" | "exec";
+
+const SEARCH_DECOR = {
+  matchBackground: "#5a4a10", matchBorder: "#eab308", matchOverviewRuler: "#eab308",
+  activeMatchBackground: "#b45309", activeMatchBorder: "#fde68a", activeMatchColorOverviewRuler: "#fde68a",
+};
 
 /**
  * Terminal bound to a websocket.
  *  job    – JSON messages {type: line|done|error, data}
  *  stream – raw text (container logs)
  *  exec   – interactive shell
+ * `download` adds an export button (server-side file); search is available for job/stream modes.
  */
-export function XTerm({ url, mode, onDone, height = 420 }: { url: string; mode: Mode; onDone?: (status: string) => void; height?: number | string }) {
+export function XTerm({ url, mode, onDone, height = 420, download }: {
+  url: string; mode: Mode; onDone?: (status: string) => void; height?: number | string;
+  download?: { path: string; filename: string };
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<SearchAddon | null>(null);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
+  const [query, setQuery] = useState("");
+  const [matches, setMatches] = useState<{ idx: number; count: number } | null>(null);
 
   useEffect(() => {
     const term = new Terminal({
       convertEol: mode !== "exec",
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Cascadia Mono', Consolas, monospace",
-      scrollback: 20000,
+      scrollback: 50000,
       cursorBlink: mode === "exec",
       disableStdin: mode !== "exec",
+      allowProposedApi: true,
       theme: { background: "#0b0f17", foreground: "#d6deeb" },
     });
     const fit = new FitAddon();
+    const search = new SearchAddon();
     term.loadAddon(fit);
+    term.loadAddon(search);
+    searchRef.current = search;
+    const sub = search.onDidChangeResults((r) => setMatches(r ? { idx: r.resultIndex, count: r.resultCount } : null));
     term.open(ref.current!);
     try {
       fit.fit();
@@ -83,11 +102,51 @@ export function XTerm({ url, mode, onDone, height = 420 }: { url: string; mode: 
     ro.observe(ref.current!);
     return () => {
       disposed = true;
+      sub.dispose();
       ro.disconnect();
       ws?.close();
       term.dispose();
+      searchRef.current = null;
     };
   }, [url, mode]);
 
-  return <div className="term" ref={ref} style={{ height }} />;
+  const find = (dir: "next" | "prev") => {
+    const s = searchRef.current;
+    if (!s || !query) return;
+    const opts = { caseSensitive: false, decorations: SEARCH_DECOR };
+    if (dir === "next") s.findNext(query, opts);
+    else s.findPrevious(query, opts);
+  };
+
+  return (
+    <div className="stack-sm">
+      {mode !== "exec" && (
+        <div className="row term-bar">
+          <input
+            className="grow"
+            placeholder="Поиск по выводу (Enter — следующее, Shift+Enter — предыдущее)"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (!e.target.value) {
+                searchRef.current?.clearDecorations();
+                setMatches(null);
+              }
+            }}
+            onKeyDown={(e) => e.key === "Enter" && find(e.shiftKey ? "prev" : "next")}
+          />
+          {query && <span className="muted small">{matches ? (matches.count ? `${matches.idx + 1} / ${matches.count}` : "не найдено") : ""}</span>}
+          <button className="btn sm" disabled={!query} onClick={() => find("prev")} title="предыдущее">↑</button>
+          <button className="btn sm" disabled={!query} onClick={() => find("next")} title="следующее">↓</button>
+          {download && (
+            <button className="btn sm" title={query ? `скачать строки с «${query}»` : "скачать лог"}
+              onClick={() => downloadFile(download.path + (query ? `${download.path.includes("?") ? "&" : "?"}grep=${encodeURIComponent(query)}` : ""), download.filename).catch(toastErr)}>
+              ⬇ {query ? "Найденное" : "Скачать"}
+            </button>
+          )}
+        </div>
+      )}
+      <div className="term" ref={ref} style={{ height }} />
+    </div>
+  );
 }

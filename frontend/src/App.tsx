@@ -10,6 +10,7 @@ import { JobPage, JobsPage } from "./pages/Jobs";
 import { CleanupPage } from "./pages/Cleanup";
 import { AccountPage, AuditPage, RegistriesPage, UsersPage } from "./pages/Admin";
 import { api } from "./api";
+import { BackupsPage } from "./pages/Backups";
 import { useFetch } from "./ui";
 
 const ROLE_RU = { admin: "администратор", operator: "оператор", viewer: "наблюдатель" } as const;
@@ -36,6 +37,7 @@ export function App() {
     ["/networks", "🔗 Сети", true],
     ["/jobs", "⚙️ Задачи", true],
     ["/system", "🧹 Система и очистка", true],
+    ["/backups", "💾 Бэкапы", can("admin")],
     ["/registries", "🔐 Реестры", can("admin")],
     ["/users", "👥 Пользователи", can("admin")],
     ["/audit", "📜 Аудит", can("admin")],
@@ -78,6 +80,7 @@ export function App() {
           <Route path="/jobs/:id" element={<JobPage />} />
           <Route path="/system" element={<CleanupPage />} />
           <Route path="/registries" element={<RegistriesPage />} />
+          <Route path="/backups" element={<BackupsPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/account" element={<AccountPage />} />

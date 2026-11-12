@@ -18,6 +18,7 @@ from .models import Job, User
 from . import registries, updater
 from .authsec import client_ip
 from .routers import auth, docker_res, jobs, projects, system, webhooks
+from .routers import backups as backups_router
 from .routers import registries as registries_router
 from .version import VERSION
 from .security import hash_password
@@ -94,6 +95,17 @@ async def lifespan(app: FastAPI):
         older = settings.auto_prune_older_than
         threading.Thread(target=auto_prune_loop, args=(hours, older), daemon=True).start()
         log.info("Auto prune every %sh (older than %sh)", hours, older)
+    if settings.backup_interval_hours > 0:
+        def backup_loop():
+            from . import backups
+            while True:
+                time.sleep(settings.backup_interval_hours * 3600)
+                try:
+                    runner.start(action="backup.scheduled", steps=backups.scheduled_backup(), username="scheduler")
+                except Exception as e:  # noqa: BLE001
+                    log.error("scheduled backup failed: %s", e)
+        threading.Thread(target=backup_loop, daemon=True).start()
+        log.info("Scheduled backups every %sh, keep %s", settings.backup_interval_hours, settings.backup_keep)
     yield
 
 
@@ -141,7 +153,7 @@ class SecurityMiddleware:
 app = FastAPI(title="Docker Manager", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware)
 for r in (auth.router, projects.router, jobs.router, docker_res.router, webhooks.router,
-          system.router, registries_router.router):
+          system.router, registries_router.router, backups_router.router):
     app.include_router(r)
 
 

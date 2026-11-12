@@ -50,6 +50,25 @@ export function ProjectsPage() {
   );
 }
 
+function TemplatePicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const list = useFetch<any[]>(() => api("/projects/templates"), []);
+  return (
+    <div className="stack-sm">
+      <Loading error={list.error} loading={list.loading && !list.data} />
+      <div className="template-grid">
+        {(list.data || []).map((t) => (
+          <button type="button" key={t.id} className={`template ${value === t.id ? "active" : ""}`} onClick={() => onChange(t.id)}>
+            <b>{t.name}</b>
+            <span className="muted small">{t.description}</span>
+            <span className="muted small mono">{t.files.join(", ")}</span>
+          </button>
+        ))}
+      </div>
+      {!value && <div className="muted small">Выберите шаблон. Пароли в .env сгенерируются автоматически.</div>}
+    </div>
+  );
+}
+
 function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const list = useFetch<any[]>(() => api("/projects/discover"), []);
   const [showAll, setShowAll] = useState(false);
@@ -124,7 +143,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const nav = useNavigate();
   const [f, setF] = useState({
     name: "", slug: "", description: "", source: "git", repo_url: "", branch: "",
-    git_username: "", git_token: "", ssh_key: "", path: "", compose_files: "docker-compose.yml", env_file: "",
+    git_username: "", git_token: "", ssh_key: "", path: "", template: "", compose_files: "docker-compose.yml", env_file: "",
   });
   const [busy, setBusy] = useState(false);
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
@@ -149,7 +168,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
     <Modal title="Новый проект" onClose={onClose}>
       <form onSubmit={submit} className="form">
         <div className="seg">
-          {[["git", "Git-репозиторий"], ["local", "Папка на сервере"], ["empty", "С нуля"]].map(([k, l]) => (
+          {[["git", "Git-репозиторий"], ["template", "Из шаблона"], ["local", "Папка на сервере"], ["empty", "С нуля"]].map(([k, l]) => (
             <button type="button" key={k} className={`seg-btn ${f.source === k ? "active" : ""}`} onClick={() => setF({ ...f, source: k })}>
               {l}
             </button>
@@ -178,6 +197,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
             </label>
           </>
         )}
+        {f.source === "template" && <TemplatePicker value={f.template} onChange={(t) => setF({ ...f, template: t })} />}
         {f.source === "local" && (
           <label>Путь к папке на сервере *<input required value={f.path} onChange={set("path")} placeholder="/opt/apps/myapp" /></label>
         )}

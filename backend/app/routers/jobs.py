@@ -8,6 +8,7 @@ from ..db import SessionLocal, get_db
 from ..deps import audit, require, ws_user
 from ..jobs import runner
 from ..models import Job, Project, User
+from ..textfiles import text_download
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -40,6 +41,16 @@ def get_job(job_id: int, _: User = Depends(require("viewer")), db: Session = Dep
     if not j:
         raise HTTPException(404, "Job not found")
     return job_out(j, db.get(Project, j.project_id) if j.project_id else None)
+
+
+@router.get("/{job_id}/output")
+def job_output(job_id: int, grep: str | None = None, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    j = db.get(Job, job_id)
+    if not j:
+        raise HTTPException(404, "Job not found")
+    live = runner.live.get(job_id)
+    text = "".join(live.chunks) if live else (j.output or "")
+    return text_download(text, f"job-{job_id}-{j.action}", grep)
 
 
 @router.post("/{job_id}/cancel")

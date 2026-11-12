@@ -51,6 +51,12 @@ class Settings:
         # Scheduled cleanup
         self.auto_prune_hours = float(env("DM_AUTO_PRUNE_INTERVAL_HOURS", "0") or 0)
         self.auto_prune_older_than = _int("DM_AUTO_PRUNE_OLDER_THAN_HOURS", 72)
+        # Backups
+        self.backup_dir = Path(env("DM_BACKUP_DIR", self.data_dir / "backups")).resolve()
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        self.backup_keep = _int("DM_BACKUP_KEEP", 7)  # archives kept per target
+        self.backup_interval_hours = float(env("DM_BACKUP_INTERVAL_HOURS", "0") or 0)
+        self.backup_stop_containers = _bool("DM_BACKUP_STOP_CONTAINERS", False)
         # Self-update
         self.update_repo = env("DM_UPDATE_REPO", "Benya9669/DockerManager")  # GitHub owner/repo with releases
         self.update_token = env("DM_UPDATE_GITHUB_TOKEN", "")  # needed only for private repos

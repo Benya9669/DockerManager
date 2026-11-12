@@ -348,6 +348,10 @@ function ProjectLogs({ p }: { p: any }) {
         url={wsUrl(`/projects/${p.id}/logs`, { tail, timestamps: ts ? "1" : "0", services: selected.join(",") })}
         mode="stream"
         height="68vh"
+        download={{
+          path: `/projects/${p.id}/logs/download?tail=${tail}&timestamps=${ts ? 1 : 0}&services=${encodeURIComponent(selected.join(","))}`,
+          filename: `${p.slug}.log`,
+        }}
       />
     </div>
   );

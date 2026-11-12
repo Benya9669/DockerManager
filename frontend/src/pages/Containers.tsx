@@ -113,7 +113,8 @@ export function ContainerPage() {
               </select>
               <label className="check"><input type="checkbox" checked={ts} onChange={(e) => setTs(e.target.checked)} />время</label>
             </div>
-            <XTerm url={wsUrl(`/docker/containers/${id}/logs`, { tail, timestamps: ts ? "1" : "0" })} mode="stream" height="65vh" />
+            <XTerm url={wsUrl(`/docker/containers/${id}/logs`, { tail, timestamps: ts ? "1" : "0" })} mode="stream" height="65vh"
+              download={{ path: `/docker/containers/${id}/logs/download?tail=${tail}&timestamps=${ts ? 1 : 0}`, filename: `${c.Name?.replace(/^\//, "")}.log` }} />
           </>
         )}
         {tab === "shell" && (

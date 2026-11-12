@@ -75,6 +75,20 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Backup(Base):
+    """A backup archive in the backup dir: panel state, project files or a docker volume."""
+    __tablename__ = "backups"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))  # panel | files | volume
+    target: Mapped[str] = mapped_column(String(255), default="")  # volume name / project slug / "panel"
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running | success | failed
+    username: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Registry(Base):
     """Credentials for private container registries (ghcr.io, gitlab registry, harbor...)."""
     __tablename__ = "registries"

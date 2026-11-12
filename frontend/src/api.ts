@@ -44,6 +44,28 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   return data as T;
 }
 
+/** Download a server-generated file with auth header and save it in the browser. */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const res = await fetch("/api" + path, { headers: { Authorization: `Bearer ${getToken() || ""}` } });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      msg = (await res.json()).detail || msg;
+    } catch {}
+    throw new ApiError(res.status, msg);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = m ? m[1] : filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 /** Websocket URL without credentials; a one-time ticket is added right before connecting (see openWs). */
 export function wsUrl(path: string, params: Record<string, string> = {}): string {
   const u = new URL("/api" + path, location.href);
