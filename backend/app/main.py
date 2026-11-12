@@ -82,9 +82,9 @@ def auto_prune_loop(hours: float, older_than: int) -> None:
 async def lifespan(app: FastAPI):
     runner.loop = asyncio.get_running_loop()
     init_db()
-    hours = float(os.getenv("DM_AUTO_PRUNE_INTERVAL_HOURS", "0") or 0)
+    hours = settings.auto_prune_hours
     if hours > 0:
-        older = int(os.getenv("DM_AUTO_PRUNE_OLDER_THAN_HOURS", "72"))
+        older = settings.auto_prune_older_than
         threading.Thread(target=auto_prune_loop, args=(hours, older), daemon=True).start()
         log.info("Auto prune every %sh (older than %sh)", hours, older)
     yield
