@@ -18,6 +18,7 @@ from .. import compose, deploy, git_ops, templates
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..deps import ROLE_LEVEL, audit, get_project, require, ws_user
+from ..access import level, project_role, require_project, roles_by_project
 from ..discover import discover_stacks
 from ..dockerc import list_containers
 from ..jobs import BusyError, runner
@@ -146,9 +147,17 @@ class CheckoutIn(BaseModel):
 
 
 # ---------- helpers ----------
-def project_out(p: Project, user: User | None = None, counts: Counter | None = None, total: Counter | None = None) -> dict:
+def project_out(p: Project, user: User | None = None, counts: Counter | None = None, total: Counter | None = None,
+                role: str | None = None) -> dict:
     is_admin = bool(user and ROLE_LEVEL.get(user.role, -1) >= ROLE_LEVEL["admin"])
+    if role is None and user is not None:
+        db = SessionLocal()
+        try:
+            role = project_role(db, user, p.id)
+        finally:
+            db.close()
     return {
+        "my_role": role,
         "id": p.id, "slug": p.slug, "name": p.name, "description": p.description, "source": p.source,
         "path": p.path, "managed": p.managed, "repo_url": p.repo_url, "branch": p.branch,
         "git_username": p.git_username, "has_token": bool(p.git_token_enc), "ssh_key": p.ssh_key,
@@ -266,7 +275,10 @@ def list_projects(user: User = Depends(require("viewer")), db: Session = Depends
                     running[c["project"]] += 1
     except HTTPException:
         pass
-    return [project_out(p, user, running, total) for p in db.scalars(select(Project).order_by(Project.name))]
+    roles = roles_by_project(db, user)
+    return [project_out(p, user, running, total, role=roles.get(p.id))
+            for p in db.scalars(select(Project).order_by(Project.name))
+            if level(roles.get(p.id)) >= level("viewer")]
 
 
 @router.post("")
@@ -345,7 +357,7 @@ def _clone(p: Project, user: User) -> dict:
 
 
 @router.get("/{project_id}")
-def get_one(project_id: int, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def get_one(project_id: int, user: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     return project_out(p, user)
 
@@ -374,7 +386,7 @@ def update_project(project_id: int, data: ProjectPatch, user: User = Depends(req
 
 
 @router.post("/{project_id}/env")
-def set_env(project_id: int, data: PathIn, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def set_env(project_id: int, data: PathIn, user: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     """Select active .env file (operators may switch env without full admin rights)."""
     p = get_project(db, project_id)
     if data.path:
@@ -409,7 +421,7 @@ def delete_project(
 
 # ---------- compose ----------
 @router.get("/{project_id}/services")
-def project_services(project_id: int, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def project_services(project_id: int, _: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     names, error = compose.services(p)
     try:
@@ -427,7 +439,7 @@ def project_services(project_id: int, _: User = Depends(require("viewer")), db: 
 
 
 @router.get("/{project_id}/config")
-def project_config(project_id: int, _: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def project_config(project_id: int, _: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     ok, out = compose.config(p)
     return {"ok": ok, "output": out}
@@ -436,7 +448,7 @@ def project_config(project_id: int, _: User = Depends(require("operator")), db: 
 @router.post("/{project_id}/actions/{action}")
 def project_action(
     project_id: int, action: str, data: ActionIn | None = None,
-    user: User = Depends(require("operator")), db: Session = Depends(get_db),
+    user: User = Depends(require_project("operator")), db: Session = Depends(get_db),
 ):
     p = get_project(db, project_id)
     if action not in compose.ACTIONS:
@@ -458,7 +470,7 @@ def project_action(
 
 
 @router.get("/{project_id}/deploy-preview")
-def deploy_preview(project_id: int, _: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def deploy_preview(project_id: int, _: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     """What the next deploy will change: incoming commits, changed files, compose diff, local changes."""
     p = get_project(db, project_id)
     res: dict = {"source": p.source, "git": None, "local_changes": [], "config_ok": None, "config_error": ""}
@@ -475,7 +487,7 @@ def deploy_preview(project_id: int, _: User = Depends(require("operator")), db: 
 
 # ---------- deployments history / rollback ----------
 @router.get("/{project_id}/deployments")
-def list_deployments(project_id: int, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def list_deployments(project_id: int, _: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
     get_project(db, project_id)
     rows = db.scalars(select(Deployment).where(Deployment.project_id == project_id)
                       .order_by(Deployment.id.desc()).limit(50))
@@ -488,7 +500,7 @@ def list_deployments(project_id: int, _: User = Depends(require("viewer")), db: 
 
 
 @router.post("/{project_id}/deployments/{dep_id}/rollback")
-def rollback_deployment(project_id: int, dep_id: int, user: User = Depends(require("operator")),
+def rollback_deployment(project_id: int, dep_id: int, user: User = Depends(require_project("operator")),
                         db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     d = db.get(Deployment, dep_id)
@@ -506,7 +518,7 @@ def _require_git(p: Project):
 
 
 @router.get("/{project_id}/git/status")
-def git_status(project_id: int, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def git_status(project_id: int, _: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     if p.source != "git":
         return {"is_repo": False, "source": p.source}
@@ -517,7 +529,7 @@ def git_status(project_id: int, _: User = Depends(require("viewer")), db: Sessio
 
 
 @router.post("/{project_id}/git/fetch")
-def git_fetch(project_id: int, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def git_fetch(project_id: int, user: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     _require_git(p)
     try:
@@ -528,7 +540,7 @@ def git_fetch(project_id: int, user: User = Depends(require("operator")), db: Se
 
 
 @router.get("/{project_id}/git/branches")
-def git_branches(project_id: int, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def git_branches(project_id: int, _: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     _require_git(p)
     try:
@@ -538,7 +550,7 @@ def git_branches(project_id: int, _: User = Depends(require("viewer")), db: Sess
 
 
 @router.get("/{project_id}/git/log")
-def git_log(project_id: int, n: int = 50, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def git_log(project_id: int, n: int = 50, _: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     _require_git(p)
     try:
@@ -561,7 +573,7 @@ def git_clone(project_id: int, user: User = Depends(require("admin")), db: Sessi
 
 
 @router.post("/{project_id}/git/pull")
-def git_pull(project_id: int, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def git_pull(project_id: int, user: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     _require_git(p)
     audit(db, user, "git.pull", p.slug)
@@ -569,7 +581,7 @@ def git_pull(project_id: int, user: User = Depends(require("operator")), db: Ses
 
 
 @router.post("/{project_id}/git/checkout")
-def git_checkout(project_id: int, data: CheckoutIn, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def git_checkout(project_id: int, data: CheckoutIn, user: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     _require_git(p)
     pid, branch = p.id, data.branch
@@ -596,7 +608,7 @@ def git_reset(project_id: int, user: User = Depends(require("admin")), db: Sessi
 
 # ---------- files / env ----------
 @router.get("/{project_id}/env-files")
-def env_files(project_id: int, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def env_files(project_id: int, _: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     root = Path(p.path)
     found: set[str] = set()
@@ -609,7 +621,7 @@ def env_files(project_id: int, _: User = Depends(require("viewer")), db: Session
 
 
 @router.get("/{project_id}/files")
-def list_or_read(project_id: int, path: str = "", _: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def list_or_read(project_id: int, path: str = "", _: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     target = safe_path(p, path)
     if not target.exists():
@@ -637,7 +649,7 @@ def list_or_read(project_id: int, path: str = "", _: User = Depends(require("ope
 
 
 @router.put("/{project_id}/files")
-def write_file(project_id: int, data: FileIn, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def write_file(project_id: int, data: FileIn, user: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     target = safe_path(p, data.path)
     check_writable(p, target)
@@ -651,7 +663,7 @@ def write_file(project_id: int, data: FileIn, user: User = Depends(require("oper
 
 
 @router.post("/{project_id}/files/mkdir")
-def make_dir(project_id: int, data: PathIn, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def make_dir(project_id: int, data: PathIn, user: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     target = safe_path(p, data.path)
     check_writable(p, target)
@@ -661,7 +673,7 @@ def make_dir(project_id: int, data: PathIn, user: User = Depends(require("operat
 
 
 @router.post("/{project_id}/files/rename")
-def rename_file(project_id: int, data: RenameIn, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def rename_file(project_id: int, data: RenameIn, user: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     src, dst = safe_path(p, data.path), safe_path(p, data.new_path)
     check_writable(p, src)
@@ -677,7 +689,7 @@ def rename_file(project_id: int, data: RenameIn, user: User = Depends(require("o
 
 
 @router.delete("/{project_id}/files")
-def delete_file(project_id: int, path: str = Query(...), user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def delete_file(project_id: int, path: str = Query(...), user: User = Depends(require_project("operator")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     target = safe_path(p, path)
     if target == Path(p.path).resolve():
@@ -699,7 +711,7 @@ def delete_file(project_id: int, path: str = Query(...), user: User = Depends(re
 # ---------- combined logs of all services ----------
 @router.get("/{project_id}/logs/download")
 def download_project_logs(project_id: int, tail: str = "all", timestamps: int = 0, services: str = "",
-                          grep: str | None = None, _: User = Depends(require("viewer")),
+                          grep: str | None = None, _: User = Depends(require_project("viewer")),
                           db: Session = Depends(get_db)):
     p = get_project(db, project_id)
     tail = tail if tail.isdigit() or tail == "all" else "all"
@@ -720,6 +732,8 @@ async def ws_project_logs(ws: WebSocket, project_id: int):
     try:
         user = ws_user(ws, db)
         p = db.get(Project, project_id)
+        if user and p and level(project_role(db, user, p.id)) < level("viewer"):
+            user = None
     finally:
         db.close()
     if not user or not p:

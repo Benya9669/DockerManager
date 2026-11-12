@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..access import level, project_role, roles_by_project
 from ..db import SessionLocal, get_db
 from ..deps import audit, require, ws_user
 from ..jobs import runner
@@ -24,37 +25,45 @@ def job_out(j: Job, project: Project | None = None, with_output: bool = False) -
     return d
 
 
+def _job(db: Session, user: User, job_id: int, need: str = "viewer") -> Job:
+    j = db.get(Job, job_id)
+    if not j or level(project_role(db, user, j.project_id)) < level("viewer"):
+        raise HTTPException(404, "Job not found")
+    if level(project_role(db, user, j.project_id)) < level(need):
+        raise HTTPException(403, f"Requires role '{need}'")
+    return j
+
+
 @router.get("")
 def list_jobs(
     project_id: int | None = None, limit: int = 100,
-    _: User = Depends(require("viewer")), db: Session = Depends(get_db),
+    user: User = Depends(require("viewer")), db: Session = Depends(get_db),
 ):
     q = select(Job, Project).outerjoin(Project, Project.id == Job.project_id).order_by(Job.id.desc()).limit(min(limit, 500))
     if project_id is not None:
         q = q.where(Job.project_id == project_id)
-    return [job_out(j, p) for j, p in db.execute(q).all()]
+    roles = roles_by_project(db, user)
+    return [job_out(j, p) for j, p in db.execute(q).all()
+            if j.project_id is None or level(roles.get(j.project_id)) >= level("viewer")]
 
 
 @router.get("/{job_id}")
-def get_job(job_id: int, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-    j = db.get(Job, job_id)
-    if not j:
-        raise HTTPException(404, "Job not found")
+def get_job(job_id: int, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    j = _job(db, user, job_id)
     return job_out(j, db.get(Project, j.project_id) if j.project_id else None)
 
 
 @router.get("/{job_id}/output")
-def job_output(job_id: int, grep: str | None = None, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-    j = db.get(Job, job_id)
-    if not j:
-        raise HTTPException(404, "Job not found")
+def job_output(job_id: int, grep: str | None = None, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    j = _job(db, user, job_id)
     live = runner.live.get(job_id)
     text = "".join(live.chunks) if live else (j.output or "")
     return text_download(text, f"job-{job_id}-{j.action}", grep)
 
 
 @router.post("/{job_id}/cancel")
-def cancel_job(job_id: int, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def cancel_job(job_id: int, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    _job(db, user, job_id, "operator")
     if not runner.cancel(job_id):
         raise HTTPException(400, "Job is not running")
     audit(db, user, "job.cancel", str(job_id))
@@ -66,6 +75,9 @@ async def stream_job(ws: WebSocket, job_id: int):
     db = SessionLocal()
     try:
         user = ws_user(ws, db)
+        jrow = db.get(Job, job_id)
+        if user and jrow and level(project_role(db, user, jrow.project_id)) < level("viewer"):
+            user = None
         if not user:
             await ws.close(code=4401)
             return

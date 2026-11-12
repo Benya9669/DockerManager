@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from pydantic import BaseModel, Field
 
 from ..db import SessionLocal
-from ..deps import ROLE_LEVEL, audit, require, ws_user
+from ..access import level, role_for_slug, roles_by_slug
+from ..deps import audit, require, ws_user
 from ..dockerc import api, list_containers
 from ..jobs import runner
 from ..models import User
@@ -93,18 +94,37 @@ def prune(data: PruneIn, user: User = Depends(require("admin")), db: Session = D
 
 
 # ---------- containers ----------
+def container_access(db: Session, user: User, cid: str, need: str = "viewer") -> dict:
+    """Inspect a container and check the user's role in the panel project it belongs to."""
+    try:
+        info = api().inspect_container(cid)
+    except Exception as e:  # noqa: BLE001
+        _err(e)
+    slug = ((info.get("Config") or {}).get("Labels") or {}).get("com.docker.compose.project")
+    role = role_for_slug(db, user, slug)
+    if level(role) < level("viewer"):
+        raise HTTPException(404, "Container not found")
+    if level(role) < level(need):
+        raise HTTPException(403, f"Requires role '{need}' in project {slug}")
+    info["_my_role"] = role
+    return info
+
+
 @router.get("/containers")
-def containers(_: User = Depends(require("viewer"))):
-    return list_containers()
+def containers(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    roles = roles_by_slug(db, user)
+    out = []
+    for c in list_containers():
+        role = roles.get(c["project"], user.role) if c["project"] else user.role
+        if level(role) >= level("viewer"):
+            out.append({**c, "my_role": role})
+    return out
 
 
 @router.get("/containers/{cid}")
-def inspect_container(cid: str, user: User = Depends(require("viewer"))):
-    try:
-        data = api().inspect_container(cid)
-    except Exception as e:  # noqa: BLE001
-        _err(e)
-    if ROLE_LEVEL.get(user.role, -1) < ROLE_LEVEL["operator"]:
+def inspect_container(cid: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    data = container_access(db, user, cid)
+    if level(data["_my_role"]) < level("operator"):
         # env vars usually hold secrets (DB passwords, API keys) — hide from viewers
         if isinstance(data.get("Config"), dict):
             data["Config"]["Env"] = ["*** скрыто: нужна роль оператора ***"]
@@ -114,7 +134,8 @@ def inspect_container(cid: str, user: User = Depends(require("viewer"))):
 
 @router.get("/containers/{cid}/logs/download")
 def download_container_logs(cid: str, tail: str = "all", timestamps: int = 0, grep: str | None = None,
-                            _: User = Depends(require("viewer"))):
+                            user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    container_access(db, user, cid)
     try:
         info = api().inspect_container(cid)
         raw = api().logs(cid, stdout=True, stderr=True, timestamps=bool(timestamps),
@@ -125,7 +146,8 @@ def download_container_logs(cid: str, tail: str = "all", timestamps: int = 0, gr
 
 
 @router.get("/containers/{cid}/stats")
-def container_stats(cid: str, _: User = Depends(require("viewer"))):
+def container_stats(cid: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    container_access(db, user, cid)
     try:
         s = api().stats(cid, stream=False)
     except Exception as e:  # noqa: BLE001
@@ -144,7 +166,8 @@ def container_stats(cid: str, _: User = Depends(require("viewer"))):
 
 
 @router.post("/containers/{cid}/{action}")
-def container_action(cid: str, action: str, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+def container_action(cid: str, action: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    container_access(db, user, cid, "operator")
     a = api()
     try:
         if action == "start":
@@ -198,6 +221,11 @@ async def _pump(ws: WebSocket, q: asyncio.Queue, on_input=None) -> None:
 async def ws_logs(ws: WebSocket, cid: str):
     db = SessionLocal()
     user = ws_user(ws, db)
+    if user:
+        try:
+            container_access(db, user, cid)
+        except HTTPException:
+            user = None
     db.close()
     if not user:
         await ws.close(code=4401)
@@ -241,9 +269,13 @@ async def ws_logs(ws: WebSocket, cid: str):
 @router.websocket("/containers/{cid}/exec")
 async def ws_exec(ws: WebSocket, cid: str):
     db = SessionLocal()
-    user = ws_user(ws, db, role="operator")
+    user = ws_user(ws, db)
     if user:
-        audit(db, user, "container.exec", cid[:12], ws.query_params.get("cmd", ""))
+        try:
+            container_access(db, user, cid, "operator")
+            audit(db, user, "container.exec", cid[:12], ws.query_params.get("cmd", ""))
+        except HTTPException:
+            user = None
     db.close()
     if not user:
         await ws.close(code=4401)

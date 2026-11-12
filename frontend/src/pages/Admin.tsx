@@ -10,6 +10,7 @@ export function UsersPage() {
   const list = useFetch<any[]>(() => api("/users"), []);
   const [show, setShow] = useState(false);
   const [f, setF] = useState({ username: "", password: "", role: "operator" });
+  const [accessFor, setAccessFor] = useState<any>(null);
 
   return (
     <div>
@@ -48,6 +49,7 @@ export function UsersPage() {
               </td>
               <td className="small">{fmtDate(u.created_at)}</td>
               <td className="actions">
+                {u.role !== "admin" && <button className="btn sm" onClick={() => setAccessFor(u)}>Доступ к проектам</button>}
                 <ActionButton className="btn sm" onClick={async () => {
                   const p = prompt(`Новый пароль для ${u.username} (мин. 8 символов)`);
                   if (!p) return;
@@ -65,6 +67,7 @@ export function UsersPage() {
           ))}
         </tbody>
       </table>
+      {accessFor && <AccessModal user={accessFor} onClose={() => setAccessFor(null)} />}
       {show && (
         <Modal title="Новый пользователь" onClose={() => setShow(false)}>
           <form className="form" onSubmit={async (e) => {
@@ -88,6 +91,51 @@ export function UsersPage() {
         </Modal>
       )}
     </div>
+  );
+}
+
+const ROLE_RU: Record<string, string> = { viewer: "наблюдатель", operator: "оператор", admin: "администратор" };
+
+function AccessModal({ user, onClose }: { user: any; onClose: () => void }) {
+  const acc = useFetch<any>(() => api(`/users/${user.id}/access`), [user.id]);
+  const set = async (project_id: number, role: string) => {
+    try {
+      await api(`/users/${user.id}/access`, { method: "PUT", body: { project_id, role: role || null } });
+      acc.reload();
+    } catch (e) {
+      toastErr(e);
+    }
+  };
+  return (
+    <Modal title={`Доступ к проектам: ${user.username}`} onClose={onClose} wide>
+      <div className="stack">
+        <div className="hint">
+          Глобальная роль: <b>{ROLE_RU[user.role]}</b> — действует во всех проектах, где не задано иное.
+          Для отдельных проектов можно скрыть проект или дать больше прав (например, оператор только в одном проекте).
+        </div>
+        <Loading error={acc.error} loading={acc.loading && !acc.data} />
+        {acc.data && (
+          <table className="table">
+            <thead><tr><th>Проект</th><th>Роль в проекте</th></tr></thead>
+            <tbody>
+              {acc.data.projects.map((p: any) => (
+                <tr key={p.project_id}>
+                  <td>{p.name} <span className="muted small">{p.slug}</span></td>
+                  <td>
+                    <select value={p.role || ""} onChange={(e) => set(p.project_id, e.target.value)}>
+                      <option value="">по умолчанию ({ROLE_RU[acc.data.global_role]})</option>
+                      <option value="none">нет доступа (проект скрыт)</option>
+                      <option value="viewer">наблюдатель</option>
+                      <option value="operator">оператор</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </Modal>
   );
 }
 

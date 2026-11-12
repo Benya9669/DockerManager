@@ -6,6 +6,10 @@ export type User = { id: number; username: string; role: Role; is_active: boolea
 
 const LEVEL: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 };
 
+/** Per-project check: `role` comes from the API (project.my_role / container.my_role). */
+export const atLeast = (role: string | null | undefined, need: Role) =>
+  role != null && role in LEVEL && LEVEL[role as Role] >= LEVEL[need];
+
 type Ctx = {
   user: User | null;
   ready: boolean;

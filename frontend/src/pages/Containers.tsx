@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, wsUrl } from "../api";
-import { useAuth } from "../auth";
+import { atLeast } from "../auth";
 import { Editor } from "../Editor";
 import { XTerm } from "../XTerm";
 import { ActionButton, Loading, Ports, StateBadge, Tabs, fmtBytes, fmtDate, useFetch } from "../ui";
 
-function ContainerActions({ c, onDone }: { c: { id: string; state: string }; onDone: () => void }) {
-  const { can } = useAuth();
-  if (!can("operator")) return null;
+function ContainerActions({ c, onDone }: { c: { id: string; state: string; my_role?: string }; onDone: () => void }) {
+  if (!atLeast(c.my_role, "operator")) return null;
   const act = (a: string) => async () => {
     await api(`/docker/containers/${c.id}/${a}`, { method: "POST" });
     onDone();
@@ -64,7 +63,6 @@ export function ContainersPage() {
 export function ContainerPage() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { can } = useAuth();
   const [sp, setSp] = useSearchParams();
   const tab = sp.get("tab") || "logs";
   const info = useFetch<any>(() => api(`/docker/containers/${id}`), [id], 5000);
@@ -95,13 +93,13 @@ export function ContainerPage() {
               <span>RAM <b>{fmtBytes(stats.data.mem_usage)}</b> / {fmtBytes(stats.data.mem_limit)}</span>
             </div>
           )}
-          <ContainerActions c={{ id: c.Id, state }} onDone={info.reload} />
+          <ContainerActions c={{ id: c.Id, state, my_role: c._my_role }} onDone={info.reload} />
         </div>
       </div>
       <Tabs
         active={tab}
         onChange={(t) => setSp({ tab: t }, { replace: true })}
-        tabs={[["logs", "Логи"], ...(can("operator") ? ([["shell", "Терминал"]] as [string, string][]) : []), ["inspect", "Inspect"], ["env", "Env / mounts"]]}
+        tabs={[["logs", "Логи"], ...(atLeast(c._my_role, "operator") ? ([["shell", "Терминал"]] as [string, string][]) : []), ["inspect", "Inspect"], ["env", "Env / mounts"]]}
       />
       <div className="tab-body">
         {tab === "logs" && (

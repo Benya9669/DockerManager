@@ -3,11 +3,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..access import PROJECT_ROLES
 from ..authsec import throttle, ws_tickets
 from ..config import settings
 from ..db import get_db
 from ..deps import ROLE_LEVEL, audit, get_current_user, require
-from ..models import AuditLog, User
+from ..models import AuditLog, Project, ProjectAccess, User
 from ..security import create_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -163,3 +164,43 @@ def list_audit(limit: int = 200, _: User = Depends(require("admin")), db: Sessio
         {"id": r.id, "ts": r.ts, "username": r.username, "ip": r.ip, "action": r.action, "target": r.target, "details": r.details}
         for r in rows
     ]
+
+
+# ---------- per-project access ----------
+class AccessIn(BaseModel):
+    project_id: int
+    role: str | None = None  # none | viewer | operator; null -> use global role
+
+
+@router.get("/users/{user_id}/access")
+def get_access(user_id: int, _: User = Depends(require("admin")), db: Session = Depends(get_db)):
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "User not found")
+    overrides = {r.project_id: r.role for r in db.scalars(select(ProjectAccess).where(ProjectAccess.user_id == u.id))}
+    return {
+        "global_role": u.role,
+        "projects": [{"project_id": p.id, "name": p.name, "slug": p.slug, "role": overrides.get(p.id)}
+                     for p in db.scalars(select(Project).order_by(Project.name))],
+    }
+
+
+@router.put("/users/{user_id}/access")
+def set_access(user_id: int, data: AccessIn, admin: User = Depends(require("admin")), db: Session = Depends(get_db)):
+    u = db.get(User, user_id)
+    p = db.get(Project, data.project_id)
+    if not u or not p:
+        raise HTTPException(404, "Not found")
+    if data.role is not None and data.role not in PROJECT_ROLES:
+        raise HTTPException(400, f"role must be one of {PROJECT_ROLES} or null")
+    row = db.scalar(select(ProjectAccess).where(ProjectAccess.user_id == u.id, ProjectAccess.project_id == p.id))
+    if data.role is None:
+        if row:
+            db.delete(row)
+    elif row:
+        row.role = data.role
+    else:
+        db.add(ProjectAccess(user_id=u.id, project_id=p.id, role=data.role))
+    db.commit()
+    audit(db, admin, "user.access", u.username, f"{p.slug}={data.role or 'default'}")
+    return {"ok": True}

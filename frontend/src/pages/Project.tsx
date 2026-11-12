@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, wsUrl } from "../api";
 import { XTerm } from "../XTerm";
-import { useAuth } from "../auth";
+import { atLeast, useAuth } from "../auth";
 import { Editor } from "../Editor";
 import { JobPanel } from "../JobPanel";
 import { SshKeySelect } from "../SshKeySelect";
@@ -49,7 +49,7 @@ export function ProjectPage() {
           <h1>{p.name} <span className="muted small">{p.slug}</span></h1>
           {p.description && <div className="muted">{p.description}</div>}
         </div>
-        {can("operator") && <ProjectToolbar p={p} runAction={runAction} />}
+        {atLeast(p.my_role, "operator") && <ProjectToolbar p={p} runAction={runAction} />}
       </div>
 
       <EnvSelector p={p} onChange={proj.reload} />
@@ -73,7 +73,7 @@ export function ProjectPage() {
         tabs={[
           ["overview", "Сервисы"],
           ["logs", "Логи"],
-          ...(can("operator") ? ([["env", "Переменные (.env)"], ["files", "Файлы"]] as [string, string][]) : []),
+          ...(atLeast(p.my_role, "operator") ? ([["env", "Переменные (.env)"], ["files", "Файлы"]] as [string, string][]) : []),
           ...(p.source === "git" ? ([["git", "Git"]] as [string, string][]) : []),
           ["deploys", "Деплои"],
           ["jobs", "История"],
@@ -142,7 +142,7 @@ function EnvSelector({ p, onChange }: { p: any; onChange: () => void }) {
     <div className="env-bar">
       <span className="muted">Активный env-файл:</span>
       <select
-        disabled={!can("operator")}
+        disabled={!atLeast(p.my_role, "operator")}
         value={p.env_file}
         onChange={async (e) => {
           try {
@@ -192,7 +192,7 @@ function ServicesTab({ p, runAction, refreshKey }: { p: any; runAction: any; ref
                   <td>{c ? <Ports ports={c.ports} /> : null}</td>
                   <td className="small mono">{c?.image}</td>
                   <td className="actions">
-                    {can("operator") && i === 0 && (
+                    {atLeast(p.my_role, "operator") && i === 0 && (
                       <>
                         <ActionButton className="btn sm" disabled={p.busy} title="up -d" onClick={() => runAction("up", { service: svc.name }, `Up ${svc.name}`)}>▶</ActionButton>
                         <ActionButton className="btn sm" disabled={p.busy} title="restart" onClick={() => runAction("restart", { service: svc.name }, `Restart ${svc.name}`)}>⟳</ActionButton>
@@ -201,7 +201,7 @@ function ServicesTab({ p, runAction, refreshKey }: { p: any; runAction: any; ref
                       </>
                     )}
                     {c && <Link className="btn sm" to={`/containers/${c.id}?tab=logs`}>Логи</Link>}
-                    {c && can("operator") && c.state === "running" && <Link className="btn sm" to={`/containers/${c.id}?tab=shell`}>Shell</Link>}
+                    {c && atLeast(p.my_role, "operator") && c.state === "running" && <Link className="btn sm" to={`/containers/${c.id}?tab=shell`}>Shell</Link>}
                   </td>
                 </tr>
               ));
@@ -301,7 +301,7 @@ function DeploymentsTab({ p, open, refreshKey }: { p: any; open: (id: number, t:
                   <td className="small">{fmtDate(d.created_at)}</td>
                   <td className="actions">
                     {d.job_id && <button className="btn sm" onClick={() => open(d.job_id, `деплой #${d.id}`)}>Лог</button>}
-                    {can("operator") && d.can_rollback && latestOk?.id !== d.id && (
+                    {atLeast(p.my_role, "operator") && d.can_rollback && latestOk?.id !== d.id && (
                       <ActionButton className="btn sm" disabled={p.busy} confirm={`Вернуть проект к состоянию деплоя #${d.id}?`}
                         onClick={async () => open((await api(`/projects/${p.id}/deployments/${d.id}/rollback`, { method: "POST" })).job_id, `откат к #${d.id}`)}>
                         ↺ Откатить сюда
@@ -569,7 +569,7 @@ function GitTab({ p, startJob, refreshKey }: { p: any; startJob: (id: number, t:
               <span className={`chip ${s.changes.length ? "yellow" : ""}`}>локальных изменений: {s.changes.length}</span>
             </div>
           </div>
-          {can("operator") && (
+          {atLeast(p.my_role, "operator") && (
             <div className="row wrap">
               <ActionButton onClick={async () => { st.setData(await api(`/projects/${p.id}/git/fetch`, { method: "POST" })); br.reload(); log.reload(); toast("Fetch выполнен"); }}>Fetch</ActionButton>
               <ActionButton className="btn primary" disabled={p.busy} onClick={async () => startJob((await api(`/projects/${p.id}/git/pull`, { method: "POST" })).job_id, "git pull")}>Pull</ActionButton>
