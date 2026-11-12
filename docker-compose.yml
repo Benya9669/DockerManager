@@ -24,6 +24,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - dm-data:/data
       - ${DM_PROJECTS_DIR:-/opt/dockermanager/projects}:${DM_PROJECTS_DIR:-/opt/dockermanager/projects}
+      # Existing compose stacks to import: mount their folders at the same path, e.g.
+      # - /opt/apps:/opt/apps
       # SSH keys for git@ repositories (read-only)
       - ${DM_SSH_DIR:-./ssh}:/root/.ssh:ro
 

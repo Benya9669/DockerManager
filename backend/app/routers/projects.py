@@ -13,6 +13,7 @@ from .. import compose, git_ops
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..deps import audit, get_project, require
+from ..discover import discover_stacks
 from ..dockerc import list_containers
 from ..jobs import BusyError, runner
 from ..models import Project, User
@@ -118,6 +119,48 @@ def start_job(p: Project, user: User, action: str, steps, cwd=None, on_success=N
     except BusyError as e:
         raise HTTPException(409, str(e))
     return {"job_id": jid}
+
+
+# ---------- import of existing compose stacks ----------
+class ImportIn(BaseModel):
+    slug: str
+    name: str | None = None
+
+
+@router.get("/discover")
+def discover(_: User = Depends(require("admin")), db: Session = Depends(get_db)):
+    known = set(db.scalars(select(Project.slug)))
+    return discover_stacks(known)
+
+
+@router.post("/import")
+def import_stack(data: ImportIn, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+    if not settings.allow_local_paths:
+        raise HTTPException(403, "Local paths are disabled (DM_ALLOW_LOCAL_PATHS=false)")
+    known = set(db.scalars(select(Project.slug)))
+    stack = next((s for s in discover_stacks(known) if s["slug"] == data.slug), None)
+    if not stack:
+        raise HTTPException(404, "Stack not found among running containers")
+    if stack["registered"]:
+        raise HTTPException(409, "Stack is already registered as a project")
+    if not stack["accessible"]:
+        raise HTTPException(400, f"Directory {stack['working_dir'] or '(unknown)'} is not accessible from the panel "
+                                 "(mount it into the container at the same path)")
+    path = Path(stack["working_dir"]).resolve()
+    managed = path.is_relative_to(settings.projects_dir)
+    p = Project(
+        slug=stack["slug"], name=data.name or stack["slug"],
+        description="Импортирован из запущенного compose-стека",
+        source="git" if stack["git_repo_url"] else "local",
+        path=str(path), managed=managed,
+        repo_url=stack["git_repo_url"], branch=stack["git_branch"],
+        compose_files=stack["compose_files"], env_file=stack["env_file"],
+        webhook_secret=secrets.token_urlsafe(24),
+    )
+    db.add(p)
+    db.commit()
+    audit(db, user, "project.import", p.slug, str(path))
+    return project_out(p)
 
 
 # ---------- CRUD ----------

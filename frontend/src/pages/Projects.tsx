@@ -2,12 +2,13 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Loading, Modal, toastErr, useFetch } from "../ui";
+import { ActionButton, Loading, Modal, toast, toastErr, useFetch } from "../ui";
 
 export function ProjectsPage() {
   const { can } = useAuth();
   const { data, error, loading, reload } = useFetch<any[]>(() => api("/projects"), [], 10000);
   const [showNew, setShowNew] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [q, setQ] = useState("");
   const list = (data || []).filter((p) => !q || (p.name + p.slug + p.description).toLowerCase().includes(q.toLowerCase()));
 
@@ -17,6 +18,7 @@ export function ProjectsPage() {
         <h1>Проекты</h1>
         <div className="row">
           <input placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
+          {can("admin") && <button className="btn" onClick={() => setShowImport(true)}>⤓ Импорт запущенных стеков</button>}
           {can("admin") && <button className="btn primary" onClick={() => setShowNew(true)}>+ Новый проект</button>}
         </div>
       </div>
@@ -42,7 +44,72 @@ export function ProjectsPage() {
         ))}
       </div>
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} onCreated={reload} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={reload} />}
     </div>
+  );
+}
+
+function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const list = useFetch<any[]>(() => api("/projects/discover"), []);
+  const [showAll, setShowAll] = useState(false);
+  const items = (list.data || []).filter((s) => showAll || !s.registered);
+  const importable = items.filter((s) => !s.registered && s.accessible);
+
+  const doImport = async (slug: string) => {
+    await api("/projects/import", { body: { slug } });
+    toast(`Импортирован: ${slug}`);
+  };
+
+  return (
+    <Modal title="Импорт запущенных compose-стеков" onClose={onClose} wide>
+      <div className="stack">
+        <div className="hint">
+          Стеки найдены по меткам контейнеров на хосте. При импорте имя compose-проекта, папка, compose-файлы и env-файл
+          берутся такими же, как при исходном запуске, поэтому панель управляет теми же контейнерами и не создаёт дубликаты.
+          Контейнеры при импорте не перезапускаются.
+        </div>
+        <div className="row between">
+          <label className="check"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />показать уже добавленные</label>
+          <ActionButton className="btn primary" disabled={!importable.length} onClick={async () => {
+            for (const s of importable) {
+              try { await doImport(s.slug); } catch (e) { toastErr(e); }
+            }
+            list.reload();
+            onImported();
+          }}>Импортировать все ({importable.length})</ActionButton>
+        </div>
+        <Loading error={list.error} loading={list.loading && !list.data} />
+        {list.data && !items.length && <div className="empty">Новых compose-стеков не найдено</div>}
+        {items.length > 0 && (
+          <table className="table">
+            <thead><tr><th>Проект</th><th>Папка / файлы</th><th>Сервисы</th><th>Git</th><th /></tr></thead>
+            <tbody>
+              {items.map((s) => (
+                <tr key={s.slug}>
+                  <td><b>{s.slug}</b><div className="muted small">▶ {s.running}/{s.total}</div></td>
+                  <td className="small">
+                    <div className="mono">{s.working_dir || "—"}</div>
+                    <div className="muted mono">{s.compose_files}{s.env_file && ` · env: ${s.env_file}`}</div>
+                    {!s.accessible && <div className="danger-text">папка недоступна панели — смонтируйте её по тому же пути</div>}
+                  </td>
+                  <td className="small">{s.services.join(", ")}</td>
+                  <td className="small">{s.git_repo_url ? <><div className="mono">{s.git_repo_url}</div><div className="muted">⎇ {s.git_branch}</div></> : <span className="muted">—</span>}</td>
+                  <td className="actions">
+                    {s.registered ? <span className="badge green">уже в панели</span> : (
+                      <ActionButton className="btn sm primary" disabled={!s.accessible} onClick={async () => {
+                        await doImport(s.slug);
+                        list.reload();
+                        onImported();
+                      }}>Импорт</ActionButton>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </Modal>
   );
 }
 
