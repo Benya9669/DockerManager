@@ -1,0 +1,31 @@
+# Docker Manager. Settings are read from .env next to this file (see .env.example).
+services:
+  dockermanager:
+    build: .
+    image: dockermanager:latest
+    container_name: dockermanager
+    restart: unless-stopped
+    ports:
+      - "${DM_PORT:-8000}:8000"
+    environment:
+      DM_DATA_DIR: /data
+      # Must be the SAME path inside and outside the container,
+      # otherwise relative bind mounts (./data:/data) in managed projects break.
+      DM_PROJECTS_DIR: ${DM_PROJECTS_DIR:-/opt/dockermanager/projects}
+      DM_ADMIN_USERNAME: ${DM_ADMIN_USERNAME:-admin}
+      DM_ADMIN_PASSWORD: ${DM_ADMIN_PASSWORD:-}
+      DM_SECRET_KEY: ${DM_SECRET_KEY:-}
+      DM_PUBLIC_URL: ${DM_PUBLIC_URL:-}
+      DM_DATABASE_URL: ${DM_DATABASE_URL:-}
+      DM_ALLOW_LOCAL_PATHS: ${DM_ALLOW_LOCAL_PATHS:-true}
+      DM_AUTO_PRUNE_INTERVAL_HOURS: ${DM_AUTO_PRUNE_INTERVAL_HOURS:-0}
+      DM_AUTO_PRUNE_OLDER_THAN_HOURS: ${DM_AUTO_PRUNE_OLDER_THAN_HOURS:-72}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dm-data:/data
+      - ${DM_PROJECTS_DIR:-/opt/dockermanager/projects}:${DM_PROJECTS_DIR:-/opt/dockermanager/projects}
+      # SSH keys for git@ repositories (read-only)
+      - ${DM_SSH_DIR:-./ssh}:/root/.ssh:ro
+
+volumes:
+  dm-data:

@@ -1,0 +1,19 @@
+# runtime data (DB, secret key, cloned projects)
+data/
+ssh/
+.env
+
+# python
+__pycache__/
+*.pyc
+backend/.venv/
+.venv/
+
+# node
+frontend/node_modules/
+frontend/dist/
+
+# misc
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,8 @@
+data
+ssh
+.env
+.git
+**/__pycache__
+backend/.venv
+frontend/node_modules
+frontend/dist
