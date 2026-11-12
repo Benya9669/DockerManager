@@ -188,3 +188,16 @@ label.inline { display: flex; align-items: center; gap: 8px; }
 .template:hover { border-color: #3a4760; }
 .template.active { border-color: var(--accent); background: #1e3a66; }
 .term-bar input { padding: 4px 8px; font-size: 13px; }
+.chart { padding: 12px 14px; min-width: 0; }
+.chart-title { font-weight: 500; margin-bottom: 6px; }
+.chart svg { display: block; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 11px; }
+.chart .crosshair { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-tip { position: absolute; top: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; pointer-events: none; min-width: 160px; z-index: 5; }
+.tip-row { display: flex; align-items: center; gap: 6px; }
+.tip-row b { margin-left: auto; padding-left: 10px; font-weight: 500; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }

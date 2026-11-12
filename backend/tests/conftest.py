@@ -10,6 +10,7 @@ os.environ["DM_DATA_DIR"] = str(_tmp / "data")
 os.environ["DM_ADMIN_PASSWORD"] = "testpass123"
 os.environ["DM_SSH_KEYS_DIR"] = str(_tmp / "ssh")
 os.environ["DM_UPDATE_CHECK_HOURS"] = "1000"
+os.environ["DM_TESTING"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient  # noqa: E402

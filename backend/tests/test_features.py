@@ -60,3 +60,30 @@ def test_panel_and_files_backup_restore(client, auth):
     assert client.post(f"/api/backups/{panel['id']}/restore", headers=auth).status_code == 400
     assert client.delete(f"/api/backups/{panel['id']}", headers=auth).status_code == 200
     assert not (settings.backup_dir / panel["filename"]).exists()
+
+
+def test_metrics_sampler_and_api(client, auth, monkeypatch):
+    from app import metrics
+
+    calls = {"n": 0}
+
+    class FakeAPI:
+        def containers(self, filters=None, all=False):
+            return [{"Id": "abc123456789xyz", "Names": ["/shop-web-1"], "Labels": {"com.docker.compose.project": "shop-m"}}]
+
+        def stats(self, cid, stream=False, one_shot=True):
+            calls["n"] += 1
+            n = calls["n"]
+            return {"cpu_stats": {"cpu_usage": {"total_usage": 1000 * n}, "system_cpu_usage": 10000 * n, "online_cpus": 2},
+                    "memory_stats": {"usage": 5000, "limit": 100000, "stats": {"inactive_file": 1000}},
+                    "networks": {"eth0": {"rx_bytes": 100 * n, "tx_bytes": 50 * n}}}
+
+    monkeypatch.setattr(metrics, "api", lambda: FakeAPI())
+    metrics.sample_once()
+    metrics.sample_once()
+    series = metrics.container_series(1, project="shop-m")
+    assert series and series[0]["name"] == "shop-web-1"
+    last = series[0]["points"][-1]
+    assert last[1] == 20.0 and last[2] == 4000  # cpu% from deltas: 1000/10000*2*100; mem minus inactive_file
+    assert client.get("/api/metrics/host?hours=1", headers=auth).status_code == 200
+    assert client.get("/api/metrics/containers/abc123456789?hours=1", headers=auth).json()["series"]

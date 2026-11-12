@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, wsUrl } from "../api";
 import { XTerm } from "../XTerm";
+import { ProjectMonitoring } from "../Monitoring";
 import { atLeast, useAuth } from "../auth";
 import { Editor } from "../Editor";
 import { JobPanel } from "../JobPanel";
@@ -73,6 +74,7 @@ export function ProjectPage() {
         tabs={[
           ["overview", "Сервисы"],
           ["logs", "Логи"],
+          ["monitoring", "Мониторинг"],
           ...(atLeast(p.my_role, "operator") ? ([["env", "Переменные (.env)"], ["files", "Файлы"]] as [string, string][]) : []),
           ...(p.source === "git" ? ([["git", "Git"]] as [string, string][]) : []),
           ["deploys", "Деплои"],
@@ -83,6 +85,7 @@ export function ProjectPage() {
       <div className="tab-body">
         {tab === "overview" && <ServicesTab p={p} runAction={runAction} refreshKey={refreshKey} />}
         {tab === "logs" && <ProjectLogs p={p} />}
+        {tab === "monitoring" && <ProjectMonitoring projectId={p.id} />}
         {tab === "env" && <EnvTab p={p} onChange={proj.reload} />}
         {tab === "files" && <FilesTab p={p} />}
         {tab === "git" && <GitTab p={p} startJob={startJob} refreshKey={refreshKey} />}

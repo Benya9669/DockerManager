@@ -51,6 +51,9 @@ class Settings:
         # Scheduled cleanup
         self.auto_prune_hours = float(env("DM_AUTO_PRUNE_INTERVAL_HOURS", "0") or 0)
         self.auto_prune_older_than = _int("DM_AUTO_PRUNE_OLDER_THAN_HOURS", 72)
+        # Monitoring
+        self.metrics_interval = _int("DM_METRICS_INTERVAL", 30)  # seconds, 0 = off
+        self.metrics_retention_hours = _int("DM_METRICS_RETENTION_HOURS", 24)
         # Backups
         self.backup_dir = Path(env("DM_BACKUP_DIR", self.data_dir / "backups")).resolve()
         self.backup_dir.mkdir(parents=True, exist_ok=True)

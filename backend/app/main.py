@@ -19,6 +19,7 @@ from . import registries, updater
 from .authsec import client_ip
 from .routers import auth, docker_res, jobs, projects, system, webhooks
 from .routers import backups as backups_router
+from .routers import metrics as metrics_router
 from .routers import registries as registries_router
 from .version import VERSION
 from .security import hash_password
@@ -89,6 +90,9 @@ async def lifespan(app: FastAPI):
     init_db()
     registries.activate()
     updater.start_background()
+    if not os.getenv("DM_TESTING"):
+        from . import metrics
+        metrics.start_background()
     log.info("Docker Manager %s started", VERSION)
     hours = settings.auto_prune_hours
     if hours > 0:
@@ -153,7 +157,7 @@ class SecurityMiddleware:
 app = FastAPI(title="Docker Manager", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware)
 for r in (auth.router, projects.router, jobs.router, docker_res.router, webhooks.router,
-          system.router, registries_router.router, backups_router.router):
+          system.router, registries_router.router, backups_router.router, metrics_router.router):
     app.include_router(r)
 
 

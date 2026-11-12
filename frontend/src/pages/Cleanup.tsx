@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { JobPanel } from "../JobPanel";
+import { HostMonitoring } from "../Monitoring";
 import { ActionButton, Loading, fmtAgo, fmtBytes, useFetch } from "../ui";
 
 export function CleanupPage() {
@@ -40,6 +41,7 @@ export function CleanupPage() {
         </div>
       )}
       {!df.data && !df.error && <div className="muted small">Подсчёт места на диске…</div>}
+      <HostMonitoring />
 
       {can("admin") ? (
         <div className="card form">

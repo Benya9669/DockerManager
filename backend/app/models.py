@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -97,6 +97,33 @@ class Backup(Base):
     status: Mapped[str] = mapped_column(String(16), default="running")  # running | success | failed
     username: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ContainerMetric(Base):
+    __tablename__ = "metrics_containers"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[int] = mapped_column(Integer, index=True)  # unix seconds
+    server_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    container: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(255))
+    project: Mapped[str] = mapped_column(String(64), default="", index=True)
+    cpu: Mapped[float] = mapped_column(Float, default=0)  # percent of one core * cores
+    mem: Mapped[int] = mapped_column(BigInteger, default=0)
+    mem_limit: Mapped[int] = mapped_column(BigInteger, default=0)
+    net_rx: Mapped[int] = mapped_column(BigInteger, default=0)  # cumulative bytes
+    net_tx: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class HostMetric(Base):
+    __tablename__ = "metrics_host"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[int] = mapped_column(Integer, index=True)
+    server_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cpu: Mapped[float] = mapped_column(Float, default=0)
+    mem_used: Mapped[int] = mapped_column(BigInteger, default=0)
+    mem_total: Mapped[int] = mapped_column(BigInteger, default=0)
+    disk_used: Mapped[int] = mapped_column(BigInteger, default=0)
+    disk_total: Mapped[int] = mapped_column(BigInteger, default=0)
 
 
 class Registry(Base):
