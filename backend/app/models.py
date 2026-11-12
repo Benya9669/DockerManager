@@ -33,6 +33,7 @@ class Project(Base):
     branch: Mapped[str] = mapped_column(String(255), default="")
     git_username: Mapped[str] = mapped_column(String(255), default="")
     git_token_enc: Mapped[str] = mapped_column(Text, default="")
+    ssh_key: Mapped[str] = mapped_column(String(255), default="")  # file name in ssh_dir, "" = ssh defaults/config
     compose_files: Mapped[str] = mapped_column(String(1024), default="docker-compose.yml")  # comma separated
     env_file: Mapped[str] = mapped_column(String(512), default="")
     webhook_secret: Mapped[str] = mapped_column(String(128), default="")

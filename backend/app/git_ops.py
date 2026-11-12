@@ -3,6 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from .config import settings
 from .models import Project
 from .security import decrypt
 
@@ -16,9 +17,38 @@ class GitError(Exception):
     pass
 
 
+def list_ssh_keys() -> list[dict]:
+    """Private keys available in the SSH dir (detected by PEM/OpenSSH header)."""
+    d = settings.ssh_dir
+    keys = []
+    if not d.is_dir():
+        return keys
+    for f in sorted(d.iterdir()):
+        if not f.is_file() or f.suffix == ".pub" or f.name in ("config", "known_hosts", "authorized_keys"):
+            continue
+        try:
+            with open(f, "rb") as fh:
+                head = fh.read(100)
+        except OSError:
+            continue
+        if not (head.startswith(b"-----BEGIN") and b"PRIVATE KEY" in head):
+            continue
+        pub = f.with_name(f.name + ".pub")
+        keys.append({"name": f.name, "public_key": pub.read_text(errors="replace").strip() if pub.is_file() else ""})
+    return keys
+
+
+def ssh_command(p: Project) -> str:
+    cmd = "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
+    if p.ssh_key:
+        key = (settings.ssh_dir / p.ssh_key).as_posix()
+        cmd += f' -i "{key}" -o IdentitiesOnly=yes'
+    return cmd
+
+
 def git_args(p: Project) -> list[str]:
     """Base git command with credentials passed via header (never stored in .git/config)."""
-    args = ["git", "-c", "credential.helper="]
+    args = ["git", "-c", "credential.helper=", "-c", f"core.sshCommand={ssh_command(p)}"]
     token = decrypt(p.git_token_enc)
     if token and p.repo_url.startswith("http"):
         user = p.git_username or "oauth2"

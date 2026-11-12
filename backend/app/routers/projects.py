@@ -34,6 +34,7 @@ class ProjectIn(BaseModel):
     branch: str = ""
     git_username: str = ""
     git_token: str = ""
+    ssh_key: str = ""
     path: str = ""
     compose_files: str = "docker-compose.yml"
     env_file: str = ""
@@ -46,6 +47,7 @@ class ProjectPatch(BaseModel):
     git_username: str | None = None
     git_token: str | None = None  # "" keeps current, use clear_token to remove
     clear_token: bool = False
+    ssh_key: str | None = None
     compose_files: str | None = None
     env_file: str | None = None
     webhook_enabled: bool | None = None
@@ -80,7 +82,7 @@ def project_out(p: Project, counts: Counter | None = None, total: Counter | None
     return {
         "id": p.id, "slug": p.slug, "name": p.name, "description": p.description, "source": p.source,
         "path": p.path, "managed": p.managed, "repo_url": p.repo_url, "branch": p.branch,
-        "git_username": p.git_username, "has_token": bool(p.git_token_enc),
+        "git_username": p.git_username, "has_token": bool(p.git_token_enc), "ssh_key": p.ssh_key,
         "compose_files": p.compose_files, "env_file": p.env_file,
         "webhook_enabled": p.webhook_enabled,
         "webhook_url": f"{settings.public_url}/api/webhooks/{p.slug}" if p.webhook_secret else "",
@@ -121,10 +123,23 @@ def start_job(p: Project, user: User, action: str, steps, cwd=None, on_success=N
     return {"job_id": jid}
 
 
+def check_ssh_key(name: str) -> str:
+    name = (name or "").strip()
+    if name and name not in {k["name"] for k in git_ops.list_ssh_keys()}:
+        raise HTTPException(400, f"SSH key '{name}' not found in {settings.ssh_dir}")
+    return name
+
+
+@router.get("/ssh-keys")
+def ssh_keys(_: User = Depends(require("operator"))):
+    return {"dir": str(settings.ssh_dir), "keys": git_ops.list_ssh_keys()}
+
+
 # ---------- import of existing compose stacks ----------
 class ImportIn(BaseModel):
     slug: str
     name: str | None = None
+    ssh_key: str = ""
 
 
 @router.get("/discover")
@@ -155,7 +170,7 @@ def import_stack(data: ImportIn, user: User = Depends(require("admin")), db: Ses
         path=str(path), managed=managed,
         repo_url=stack["git_repo_url"], branch=stack["git_branch"],
         compose_files=stack["compose_files"], env_file=stack["env_file"],
-        webhook_secret=secrets.token_urlsafe(24),
+        ssh_key=check_ssh_key(data.ssh_key), webhook_secret=secrets.token_urlsafe(24),
     )
     db.add(p)
     db.commit()
@@ -205,6 +220,7 @@ def create_project(data: ProjectIn, user: User = Depends(require("admin")), db: 
         source="git" if data.source == "git" else "local",
         path=str(path), managed=managed, repo_url=data.repo_url.strip(), branch=data.branch.strip(),
         git_username=data.git_username.strip(), git_token_enc=encrypt(data.git_token.strip()),
+        ssh_key=check_ssh_key(data.ssh_key),
         compose_files=data.compose_files.strip() or "docker-compose.yml", env_file=data.env_file.strip(),
         webhook_secret=secrets.token_urlsafe(24),
     )
@@ -258,6 +274,8 @@ def update_project(project_id: int, data: ProjectPatch, user: User = Depends(req
             setattr(p, field, v.strip() if isinstance(v, str) else v)
     if data.env_file:
         safe_path(p, data.env_file)
+    if data.ssh_key is not None:
+        p.ssh_key = check_ssh_key(data.ssh_key)
     if data.git_token:
         p.git_token_enc = encrypt(data.git_token.strip())
     if data.clear_token:

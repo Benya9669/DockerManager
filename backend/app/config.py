@@ -29,6 +29,8 @@ class Settings:
         # Public base URL, used to show webhook URLs in the UI
         self.public_url = os.getenv("DM_PUBLIC_URL", "").rstrip("/")
         self.static_dir = Path(os.getenv("DM_STATIC_DIR", BASE_DIR / "frontend" / "dist")).resolve()
+        # Where SSH private keys for git live (selectable per project)
+        self.ssh_dir = Path(os.getenv("DM_SSH_KEYS_DIR", Path.home() / ".ssh")).resolve()
         self.max_file_size = int(os.getenv("DM_MAX_FILE_SIZE", str(2 * 1024 * 1024)))
 
     def _load_or_create_secret(self) -> str:

@@ -26,8 +26,9 @@ services:
       - ${DM_PROJECTS_DIR:-/opt/dockermanager/projects}:${DM_PROJECTS_DIR:-/opt/dockermanager/projects}
       # Existing compose stacks to import: mount their folders at the same path, e.g.
       # - /opt/apps:/opt/apps
-      # SSH keys for git@ repositories (read-only)
-      - ${DM_SSH_DIR:-./ssh}:/root/.ssh:ro
+      # SSH keys (+ optional config/known_hosts) for git@ repositories.
+      # Copied into /root/.ssh with correct permissions at startup.
+      - ${DM_SSH_DIR:-./ssh}:/ssh-src:ro
 
 volumes:
   dm-data:

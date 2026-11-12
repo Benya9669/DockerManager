@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 
 from .config import settings
 from .db import Base, SessionLocal, engine
@@ -22,8 +22,33 @@ log = logging.getLogger("dockermanager")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
+def migrate() -> None:
+    """Minimal auto-migration: add columns that exist in models but not in the DB."""
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            existing = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                coltype = col.type.compile(dialect=engine.dialect)
+                default = col.default.arg if col.default is not None and not callable(col.default.arg) else None
+                ddl = f'ALTER TABLE {table.name} ADD COLUMN {col.name} {coltype}'
+                if isinstance(default, bool):
+                    ddl += f" NOT NULL DEFAULT {'TRUE' if default else 'FALSE'}"
+                elif isinstance(default, (int, float)):
+                    ddl += f" NOT NULL DEFAULT {default}"
+                elif isinstance(default, str):
+                    ddl += " NOT NULL DEFAULT '" + default.replace("'", "''") + "'"
+                conn.execute(text(ddl))
+                log.info("migrated: %s", ddl)
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    migrate()
     db = SessionLocal()
     try:
         # jobs left "running" from a previous process can never finish

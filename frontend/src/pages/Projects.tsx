@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ActionButton, Loading, Modal, toast, toastErr, useFetch } from "../ui";
+import { SshKeySelect } from "../SshKeySelect";
 
 export function ProjectsPage() {
   const { can } = useAuth();
@@ -52,11 +53,13 @@ export function ProjectsPage() {
 function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const list = useFetch<any[]>(() => api("/projects/discover"), []);
   const [showAll, setShowAll] = useState(false);
+  const [sshKey, setSshKey] = useState("");
   const items = (list.data || []).filter((s) => showAll || !s.registered);
   const importable = items.filter((s) => !s.registered && s.accessible);
 
   const doImport = async (slug: string) => {
-    await api("/projects/import", { body: { slug } });
+    const s = items.find((x) => x.slug === slug);
+    await api("/projects/import", { body: { slug, ssh_key: s?.git_repo_url ? sshKey : "" } });
     toast(`Импортирован: ${slug}`);
   };
 
@@ -68,6 +71,10 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
           берутся такими же, как при исходном запуске, поэтому панель управляет теми же контейнерами и не создаёт дубликаты.
           Контейнеры при импорте не перезапускаются.
         </div>
+        <label className="form">
+          <span className="muted small">SSH-ключ для импортируемых git-проектов (можно поменять потом в настройках проекта)</span>
+          <SshKeySelect value={sshKey} onChange={setSshKey} />
+        </label>
         <div className="row between">
           <label className="check"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />показать уже добавленные</label>
           <ActionButton className="btn primary" disabled={!importable.length} onClick={async () => {
@@ -117,7 +124,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const nav = useNavigate();
   const [f, setF] = useState({
     name: "", slug: "", description: "", source: "git", repo_url: "", branch: "",
-    git_username: "", git_token: "", path: "", compose_files: "docker-compose.yml", env_file: "",
+    git_username: "", git_token: "", ssh_key: "", path: "", compose_files: "docker-compose.yml", env_file: "",
   });
   const [busy, setBusy] = useState(false);
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
@@ -165,7 +172,10 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
               Токен доступа (для HTTPS)
               <input type="password" value={f.git_token} onChange={set("git_token")} placeholder="хранится зашифрованным" autoComplete="new-password" />
             </label>
-            <div className="hint">Для SSH-URL используются ключи из ~/.ssh пользователя, под которым запущен сервер.</div>
+            <label>
+              SSH-ключ (для git@… URL)
+              <SshKeySelect value={f.ssh_key} onChange={(v) => setF({ ...f, ssh_key: v })} />
+            </label>
           </>
         )}
         {f.source === "local" && (

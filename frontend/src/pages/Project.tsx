@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { Editor } from "../Editor";
 import { JobPanel } from "../JobPanel";
+import { SshKeySelect } from "../SshKeySelect";
 import {
   ActionButton, Loading, Modal, Ports, StateBadge, Tabs, fmtAgo, fmtBytes, fmtDate, toast, toastErr, useFetch,
 } from "../ui";
@@ -473,7 +474,7 @@ function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (i
   const nav = useNavigate();
   const [f, setF] = useState({
     name: p.name, description: p.description, repo_url: p.repo_url, git_username: p.git_username,
-    git_token: "", compose_files: p.compose_files, webhook_enabled: p.webhook_enabled,
+    git_token: "", ssh_key: p.ssh_key || "", compose_files: p.compose_files, webhook_enabled: p.webhook_enabled,
   });
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
   const webhookUrl = (p.webhook_url.startsWith("/") ? location.origin : "") + p.webhook_url;
@@ -509,6 +510,10 @@ function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (i
                 <input type="password" value={f.git_token} onChange={set("git_token")} placeholder={p.has_token ? "оставьте пустым, чтобы не менять" : ""} autoComplete="new-password" />
               </label>
             </div>
+            <label>
+              SSH-ключ (для git@… URL)
+              <SshKeySelect value={f.ssh_key} onChange={(v) => setF({ ...f, ssh_key: v })} />
+            </label>
             {p.has_token && (
               <ActionButton className="btn sm ghost" confirm="Удалить сохранённый токен?" onClick={async () => {
                 await api(`/projects/${p.id}`, { method: "PATCH", body: { clear_token: true } });
