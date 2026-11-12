@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..authsec import throttle, ws_tickets
+from ..config import settings
 from ..db import get_db
 from ..deps import ROLE_LEVEL, audit, get_current_user, require
 from ..models import AuditLog, User
@@ -37,14 +39,39 @@ def user_out(u: User) -> dict:
     return {"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at}
 
 
+_DUMMY_HASH = hash_password("timing-equalizer")
+
+
+def _ip(request: Request) -> str:
+    return request.client.host if request.client else ""
+
+
+def _revoke_sessions(u: User) -> None:
+    u.token_version = (u.token_version or 0) + 1
+
+
+def _forget_initial_password(u: User) -> None:
+    f = settings.data_dir / "initial_admin_password.txt"
+    if u.username == settings.admin_username and f.exists():
+        f.unlink(missing_ok=True)
+
+
 @router.post("/auth/login")
-def login(data: LoginIn, db: Session = Depends(get_db)):
+def login(data: LoginIn, request: Request, db: Session = Depends(get_db)):
+    ip = _ip(request)
+    wait = throttle.retry_after(ip, data.username)
+    if wait:
+        raise HTTPException(429, f"Слишком много неудачных попыток входа. Повторите через {wait // 60 + 1} мин.")
     u = db.scalar(select(User).where(User.username == data.username))
-    if not u or not u.is_active or not verify_password(data.password, u.password_hash):
+    # always run the hash so response time doesn't reveal whether the user exists
+    ok = verify_password(data.password, u.password_hash if u else _DUMMY_HASH)
+    if not u or not u.is_active or not ok:
+        throttle.fail(ip, data.username)
         audit(db, data.username, "login.failed")
         raise HTTPException(401, "Invalid username or password")
+    throttle.success(ip, data.username)
     audit(db, u, "login")
-    return {"token": create_token(u.id), "user": user_out(u)}
+    return {"token": create_token(u.id, u.token_version or 0), "user": user_out(u)}
 
 
 @router.get("/auth/me")
@@ -52,15 +79,22 @@ def me(user: User = Depends(get_current_user)):
     return user_out(user)
 
 
+@router.post("/auth/ws-ticket")
+def ws_ticket(user: User = Depends(get_current_user)):
+    """Single-use ticket (30s) for opening one websocket; keeps the session token out of URLs."""
+    return {"ticket": ws_tickets.issue(user.id)}
+
+
 @router.post("/auth/password")
 def change_password(data: PasswordIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(400, "Current password is wrong")
     user.password_hash = hash_password(data.new_password)
-    db.merge(user)
+    _revoke_sessions(user)  # log out all other sessions
     db.commit()
+    _forget_initial_password(user)
     audit(db, user, "password.change")
-    return {"ok": True}
+    return {"ok": True, "token": create_token(user.id, user.token_version)}
 
 
 @router.get("/users")
@@ -96,8 +130,14 @@ def update_user(user_id: int, data: UserPatch, admin: User = Depends(require("ad
         if u.id == admin.id and not data.is_active:
             raise HTTPException(400, "You cannot disable yourself")
         u.is_active = data.is_active
+        if not data.is_active:
+            _revoke_sessions(u)
     if data.password:
         u.password_hash = hash_password(data.password)
+        _revoke_sessions(u)
+        _forget_initial_password(u)
+    if data.role is not None:
+        _revoke_sessions(u)  # role changes take effect immediately everywhere
     db.commit()
     audit(db, admin, "user.update", u.username, data.model_dump_json(exclude={"password"}, exclude_none=True))
     return user_out(u)
@@ -120,6 +160,6 @@ def delete_user(user_id: int, admin: User = Depends(require("admin")), db: Sessi
 def list_audit(limit: int = 200, _: User = Depends(require("admin")), db: Session = Depends(get_db)):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 1000)))
     return [
-        {"id": r.id, "ts": r.ts, "username": r.username, "action": r.action, "target": r.target, "details": r.details}
+        {"id": r.id, "ts": r.ts, "username": r.username, "ip": r.ip, "action": r.action, "target": r.target, "details": r.details}
         for r in rows
     ]

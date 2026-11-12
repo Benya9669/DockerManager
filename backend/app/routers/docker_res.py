@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from pydantic import BaseModel, Field
 
 from ..db import SessionLocal
-from ..deps import audit, require, ws_user
+from ..deps import ROLE_LEVEL, audit, require, ws_user
 from ..dockerc import api, list_containers
 from ..jobs import runner
 from ..models import User
@@ -98,11 +98,17 @@ def containers(_: User = Depends(require("viewer"))):
 
 
 @router.get("/containers/{cid}")
-def inspect_container(cid: str, _: User = Depends(require("viewer"))):
+def inspect_container(cid: str, user: User = Depends(require("viewer"))):
     try:
-        return api().inspect_container(cid)
+        data = api().inspect_container(cid)
     except Exception as e:  # noqa: BLE001
         _err(e)
+    if ROLE_LEVEL.get(user.role, -1) < ROLE_LEVEL["operator"]:
+        # env vars usually hold secrets (DB passwords, API keys) — hide from viewers
+        if isinstance(data.get("Config"), dict):
+            data["Config"]["Env"] = ["*** скрыто: нужна роль оператора ***"]
+        data.pop("HostConfig", None)
+    return data
 
 
 @router.get("/containers/{cid}/stats")
@@ -287,7 +293,7 @@ async def ws_exec(ws: WebSocket, cid: str):
 
 # ---------- images ----------
 class PullIn(BaseModel):
-    image: str = Field(min_length=1, pattern=r"^[\w./:@-]+$")
+    image: str = Field(min_length=1, max_length=512, pattern=r"^[A-Za-z0-9][\w./:@-]*$")
 
 
 @router.get("/images")

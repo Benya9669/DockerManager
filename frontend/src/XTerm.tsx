@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { openWs } from "./api";
 
 type Mode = "job" | "stream" | "exec";
 
@@ -33,35 +34,46 @@ export function XTerm({ url, mode, onDone, height = 420 }: { url: string; mode: 
       fit.fit();
     } catch {}
 
-    const ws = new WebSocket(url);
+    let ws: WebSocket | null = null;
+    let disposed = false;
     let finished = false;
-    ws.onmessage = (e) => {
-      if (mode === "job") {
-        const m = JSON.parse(e.data);
-        if (m.type === "line") term.write(m.data);
-        else if (m.type === "error") term.write(`\r\n\x1b[31m${m.data}\x1b[0m\r\n`);
-        else if (m.type === "done") {
-          finished = true;
-          onDoneRef.current?.(m.data);
-        }
-      } else term.write(e.data);
-    };
-    ws.onclose = (e) => {
-      if (e.code === 4401) term.write("\r\n\x1b[31m[нет доступа]\x1b[0m\r\n");
-      else if (!finished) term.write("\r\n\x1b[90m[соединение закрыто]\x1b[0m\r\n");
+
+    const wire = (ws: WebSocket) => {
+      ws.onmessage = (e) => {
+        if (mode === "job") {
+          const m = JSON.parse(e.data);
+          if (m.type === "line") term.write(m.data);
+          else if (m.type === "error") term.write(`\r\n\x1b[31m${m.data}\x1b[0m\r\n`);
+          else if (m.type === "done") {
+            finished = true;
+            onDoneRef.current?.(m.data);
+          }
+        } else term.write(e.data);
+      };
+      ws.onclose = (e) => {
+        if (e.code === 4401) term.write("\r\n\x1b[31m[нет доступа]\x1b[0m\r\n");
+        else if (!finished) term.write("\r\n\x1b[90m[соединение закрыто]\x1b[0m\r\n");
+      };
+      if (mode === "exec") {
+        const sendSize = () => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        };
+        term.onData((d) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "input", data: d })));
+        term.onResize(sendSize);
+        ws.onopen = () => {
+          sendSize();
+          term.focus();
+        };
+      }
     };
 
-    const sendSize = () => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-    };
-    if (mode === "exec") {
-      term.onData((d) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "input", data: d })));
-      term.onResize(sendSize);
-      ws.onopen = () => {
-        sendSize();
-        term.focus();
-      };
-    }
+    openWs(url)
+      .then((s) => {
+        if (disposed) return s.close();
+        ws = s;
+        wire(s);
+      })
+      .catch((e) => term.write(`\r\n\x1b[31m[ошибка подключения: ${e.message || e}]\x1b[0m\r\n`));
 
     const ro = new ResizeObserver(() => {
       try {
@@ -70,8 +82,9 @@ export function XTerm({ url, mode, onDone, height = 420 }: { url: string; mode: 
     });
     ro.observe(ref.current!);
     return () => {
+      disposed = true;
       ro.disconnect();
-      ws.close();
+      ws?.close();
       term.dispose();
     };
   }, [url, mode]);

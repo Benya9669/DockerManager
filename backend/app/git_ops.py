@@ -7,12 +7,6 @@ from .config import settings
 from .models import Project
 from .security import decrypt
 
-GIT_ENV = {
-    "GIT_TERMINAL_PROMPT": "0",
-    "GIT_SSH_COMMAND": "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes",
-}
-
-
 class GitError(Exception):
     pass
 
@@ -46,15 +40,24 @@ def ssh_command(p: Project) -> str:
     return cmd
 
 
-def git_args(p: Project) -> list[str]:
-    """Base git command with credentials passed via header (never stored in .git/config)."""
-    args = ["git", "-c", "credential.helper=", "-c", f"core.sshCommand={ssh_command(p)}"]
+def git_env(p: Project) -> dict[str, str]:
+    """Git settings for this project passed via environment, never via argv
+    (argv is visible to every user on the host in `ps`) and never stored in .git/config."""
+    cfg: list[tuple[str, str]] = [("credential.helper", "")]
     token = decrypt(p.git_token_enc)
     if token and p.repo_url.startswith("http"):
         user = p.git_username or "oauth2"
         basic = base64.b64encode(f"{user}:{token}".encode()).decode()
-        args += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
-    return args
+        cfg.append(("http.extraHeader", f"Authorization: Basic {basic}"))
+    env = {"GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": ssh_command(p), "GIT_CONFIG_COUNT": str(len(cfg))}
+    for i, (k, v) in enumerate(cfg):
+        env[f"GIT_CONFIG_KEY_{i}"] = k
+        env[f"GIT_CONFIG_VALUE_{i}"] = v
+    return env
+
+
+def git_args(p: Project) -> list[str]:
+    return ["git"]
 
 
 def is_repo(p: Project) -> bool:
@@ -65,7 +68,7 @@ def run(p: Project, *args: str, timeout: int = 60) -> str:
     try:
         r = subprocess.run(
             [*git_args(p), *args], cwd=p.path, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout, env={**os.environ, **GIT_ENV},
+            encoding="utf-8", errors="replace", timeout=timeout, env={**os.environ, **git_env(p)},
         )
     except subprocess.TimeoutExpired:
         raise GitError("git command timed out")
@@ -127,7 +130,7 @@ def clone_steps(p: Project) -> list[tuple[str, list[str]]]:
     args = [*git_args(p), "clone", "--progress"]
     if p.branch:
         args += ["--branch", p.branch]
-    args += [p.repo_url, p.path]
+    args += ["--", p.repo_url, p.path]  # "--": URL can never be parsed as an option
     return [(f"git clone {p.repo_url} ({p.branch or 'default branch'})", args)]
 
 

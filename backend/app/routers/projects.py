@@ -10,14 +10,14 @@ import subprocess
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import compose, git_ops
 from ..config import settings
 from ..db import SessionLocal, get_db
-from ..deps import audit, get_project, require, ws_user
+from ..deps import ROLE_LEVEL, audit, get_project, require, ws_user
 from ..discover import discover_stacks
 from ..dockerc import list_containers
 from ..jobs import BusyError, runner
@@ -27,6 +27,35 @@ from ..security import encrypt
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 ENV_PATTERNS = (".env", ".env.*", "*.env", "env/*", "envs/*", ".envs/*")
+
+
+# ---------- validation (no values that git/docker could parse as options) ----------
+SAFE_NAME = re.compile(r"^[\w][\w.@:/+-]*$")
+REPO_URL = re.compile(r"^(https?://|ssh://|git@|[\w.-]+@[\w.-]+:)[^\s]+$")
+
+
+def _no_option(v: str | None, what: str) -> str | None:
+    if v is None:
+        return v
+    v = v.strip()
+    if v.startswith("-"):
+        raise ValueError(f"{what} must not start with '-'")
+    return v
+
+
+def _repo_url(v: str | None) -> str | None:
+    v = _no_option(v, "repo_url")
+    if v and not REPO_URL.match(v):
+        raise ValueError("repo_url must be https://, ssh:// or git@host:path")
+    return v
+
+
+def _files(v: str | None) -> str | None:
+    if v is None:
+        return v
+    for f in v.split(","):
+        _no_option(f, "compose file")
+    return v.strip()
 
 
 # ---------- schemas ----------
@@ -44,6 +73,21 @@ class ProjectIn(BaseModel):
     compose_files: str = "docker-compose.yml"
     env_file: str = ""
 
+    @field_validator("repo_url")
+    @classmethod
+    def _v_repo(cls, v):
+        return _repo_url(v)
+
+    @field_validator("branch", "env_file")
+    @classmethod
+    def _v_opt(cls, v, info):
+        return _no_option(v, info.field_name)
+
+    @field_validator("compose_files")
+    @classmethod
+    def _v_files(cls, v):
+        return _files(v)
+
 
 class ProjectPatch(BaseModel):
     name: str | None = None
@@ -58,9 +102,24 @@ class ProjectPatch(BaseModel):
     webhook_enabled: bool | None = None
     regenerate_webhook: bool = False
 
+    @field_validator("repo_url")
+    @classmethod
+    def _v_repo(cls, v):
+        return _repo_url(v)
+
+    @field_validator("env_file")
+    @classmethod
+    def _v_opt(cls, v, info):
+        return _no_option(v, info.field_name)
+
+    @field_validator("compose_files")
+    @classmethod
+    def _v_files(cls, v):
+        return _files(v)
+
 
 class ActionIn(BaseModel):
-    service: str | None = None
+    service: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][\w.-]*$", max_length=128)
     no_cache: bool = False
 
 
@@ -79,19 +138,21 @@ class RenameIn(BaseModel):
 
 
 class CheckoutIn(BaseModel):
-    branch: str = Field(min_length=1, max_length=255, pattern=r"^[\w./-]+$")
+    branch: str = Field(min_length=1, max_length=255, pattern=r"^[\w][\w./-]*$")
 
 
 # ---------- helpers ----------
-def project_out(p: Project, counts: Counter | None = None, total: Counter | None = None) -> dict:
+def project_out(p: Project, user: User | None = None, counts: Counter | None = None, total: Counter | None = None) -> dict:
+    is_admin = bool(user and ROLE_LEVEL.get(user.role, -1) >= ROLE_LEVEL["admin"])
     return {
         "id": p.id, "slug": p.slug, "name": p.name, "description": p.description, "source": p.source,
         "path": p.path, "managed": p.managed, "repo_url": p.repo_url, "branch": p.branch,
         "git_username": p.git_username, "has_token": bool(p.git_token_enc), "ssh_key": p.ssh_key,
         "compose_files": p.compose_files, "env_file": p.env_file,
         "webhook_enabled": p.webhook_enabled,
-        "webhook_url": f"{settings.public_url}/api/webhooks/{p.slug}" if p.webhook_secret else "",
-        "webhook_secret": p.webhook_secret,
+        # webhook secret allows triggering deploys -> admins only
+        "webhook_url": f"{settings.public_url}/api/webhooks/{p.slug}" if (p.webhook_secret and is_admin) else "",
+        "webhook_secret": p.webhook_secret if is_admin else "",
         "busy": runner.is_busy(p.id), "created_at": p.created_at,
         "containers_running": (counts or {}).get(p.slug, 0),
         "containers_total": (total or {}).get(p.slug, 0),
@@ -121,7 +182,7 @@ def start_job(p: Project, user: User, action: str, steps, cwd=None, on_success=N
     try:
         jid = runner.start(
             action=action, steps=steps, cwd=cwd or p.path, project_id=p.id,
-            username=user.username, on_success=on_success,
+            username=user.username, on_success=on_success, env=git_ops.git_env(p),
         )
     except BusyError as e:
         raise HTTPException(409, str(e))
@@ -180,12 +241,12 @@ def import_stack(data: ImportIn, user: User = Depends(require("admin")), db: Ses
     db.add(p)
     db.commit()
     audit(db, user, "project.import", p.slug, str(path))
-    return project_out(p)
+    return project_out(p, user)
 
 
 # ---------- CRUD ----------
 @router.get("")
-def list_projects(_: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def list_projects(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
     running, total = Counter(), Counter()
     try:
         for c in list_containers():
@@ -195,7 +256,7 @@ def list_projects(_: User = Depends(require("viewer")), db: Session = Depends(ge
                     running[c["project"]] += 1
     except HTTPException:
         pass
-    return [project_out(p, running, total) for p in db.scalars(select(Project).order_by(Project.name))]
+    return [project_out(p, user, running, total) for p in db.scalars(select(Project).order_by(Project.name))]
 
 
 @router.post("")
@@ -233,7 +294,7 @@ def create_project(data: ProjectIn, user: User = Depends(require("admin")), db: 
     db.commit()
     audit(db, user, "project.create", slug, f"source={data.source}")
 
-    result = project_out(p)
+    result = project_out(p, user)
     if data.source == "empty":
         path.mkdir(parents=True, exist_ok=True)
         cf = path / compose.compose_files(p)[0]
@@ -265,9 +326,9 @@ def _clone(p: Project, user: User) -> dict:
 
 
 @router.get("/{project_id}")
-def get_one(project_id: int, _: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+def get_one(project_id: int, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
-    return project_out(p)
+    return project_out(p, user)
 
 
 @router.patch("/{project_id}")
@@ -289,7 +350,7 @@ def update_project(project_id: int, data: ProjectPatch, user: User = Depends(req
         p.webhook_secret = secrets.token_urlsafe(24)
     db.commit()
     audit(db, user, "project.update", p.slug, data.model_dump_json(exclude={"git_token"}, exclude_defaults=True))
-    return project_out(p)
+    return project_out(p, user)
 
 
 @router.post("/{project_id}/env")
@@ -303,7 +364,7 @@ def set_env(project_id: int, data: PathIn, user: User = Depends(require("operato
     p.env_file = data.path
     db.commit()
     audit(db, user, "project.env.select", p.slug, data.path or "(none)")
-    return project_out(p)
+    return project_out(p, user)
 
 
 @router.delete("/{project_id}")
@@ -364,6 +425,10 @@ def project_action(
     no_cache = data.no_cache if data else False
     if not Path(p.path).exists():
         raise HTTPException(400, "Project directory does not exist (clone first?)")
+    if service:
+        names, _err = compose.services(p)
+        if names and service not in names:
+            raise HTTPException(400, f"Unknown service '{service}'")
     steps = compose.action_steps(p, action, service, no_cache)
     audit(db, user, f"compose.{action}", p.slug, service or "")
     return start_job(p, user, f"compose.{action}" + (f":{service}" if service else ""), steps)
@@ -585,7 +650,7 @@ async def ws_project_logs(ws: WebSocket, project_id: int):
 
     tail = ws.query_params.get("tail", "200")
     tail = tail if tail.isdigit() or tail == "all" else "200"
-    services = [s for s in ws.query_params.get("services", "").split(",") if s]
+    services = [s for s in ws.query_params.get("services", "").split(",") if re.fullmatch(r"[A-Za-z0-9][\w.-]*", s)]
     args = [*compose.base(p, ansi="always"), "logs", "-f", "--tail", tail]
     if ws.query_params.get("timestamps") == "1":
         args.append("--timestamps")

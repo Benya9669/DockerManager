@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "../api";
+import { api, setToken } from "../api";
 import { useAuth } from "../auth";
 import { ActionButton, Loading, Modal, fmtDate, toast, toastErr, useFetch } from "../ui";
 
@@ -94,7 +94,7 @@ export function UsersPage() {
 export function AuditPage() {
   const list = useFetch<any[]>(() => api("/audit?limit=500"), [], 15000);
   const [q, setQ] = useState("");
-  const items = (list.data || []).filter((r) => !q || `${r.username} ${r.action} ${r.target} ${r.details}`.toLowerCase().includes(q.toLowerCase()));
+  const items = (list.data || []).filter((r) => !q || `${r.username} ${r.ip} ${r.action} ${r.target} ${r.details}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <div>
       <div className="page-head">
@@ -103,11 +103,11 @@ export function AuditPage() {
       </div>
       <Loading error={list.error} loading={list.loading && !list.data} />
       <table className="table">
-        <thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>Детали</th></tr></thead>
+        <thead><tr><th>Время</th><th>Пользователь</th><th>IP</th><th>Действие</th><th>Объект</th><th>Детали</th></tr></thead>
         <tbody>
           {items.map((r) => (
             <tr key={r.id}>
-              <td className="small">{fmtDate(r.ts)}</td><td>{r.username}</td>
+              <td className="small">{fmtDate(r.ts)}</td><td>{r.username}</td><td className="mono small">{r.ip}</td>
               <td className="mono small">{r.action}</td><td>{r.target}</td>
               <td className="small mono muted">{r.details}</td>
             </tr>
@@ -127,8 +127,9 @@ export function AccountPage() {
       <form className="card form narrow" onSubmit={async (e) => {
         e.preventDefault();
         try {
-          await api("/auth/password", { body: f });
-          toast("Пароль изменён");
+          const r = await api("/auth/password", { body: f });
+          if (r.token) setToken(r.token); // other sessions are logged out, keep this one
+          toast("Пароль изменён, остальные сессии завершены");
           setF({ current_password: "", new_password: "" });
         } catch (err) { toastErr(err); }
       }}>

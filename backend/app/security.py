@@ -27,18 +27,20 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-def create_token(user_id: int) -> str:
+def create_token(user_id: int, token_version: int = 0) -> str:
     payload = {
         "sub": str(user_id),
+        "tv": token_version,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.token_ttl_minutes),
     }
     return jwt.encode(payload, settings.secret_key, algorithm="HS256")
 
 
-def decode_token(token: str) -> int | None:
+def decode_token(token: str) -> tuple[int, int] | None:
+    """Returns (user_id, token_version) or None."""
     try:
         data = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        return int(data["sub"])
+        return int(data["sub"]), int(data.get("tv", 0))
     except Exception:
         return None
 

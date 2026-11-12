@@ -44,10 +44,18 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   return data as T;
 }
 
+/** Websocket URL without credentials; a one-time ticket is added right before connecting (see openWs). */
 export function wsUrl(path: string, params: Record<string, string> = {}): string {
   const u = new URL("/api" + path, location.href);
   u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-  u.searchParams.set("token", getToken() || "");
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   return u.toString();
+}
+
+/** Opens a websocket authenticated with a single-use 30s ticket (session token never goes into the URL). */
+export async function openWs(url: string): Promise<WebSocket> {
+  const { ticket } = await api<{ ticket: string }>("/auth/ws-ticket", { method: "POST" });
+  const u = new URL(url);
+  u.searchParams.set("ticket", ticket);
+  return new WebSocket(u.toString());
 }

@@ -17,6 +17,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(16), default="viewer")  # viewer | operator | admin
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # bumped on password change / disable -> all previously issued tokens become invalid
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -68,6 +70,7 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     username: Mapped[str] = mapped_column(String(64), default="")
+    ip: Mapped[str] = mapped_column(String(64), default="")
     action: Mapped[str] = mapped_column(String(64))
     target: Mapped[str] = mapped_column(String(255), default="")
     details: Mapped[str] = mapped_column(Text, default="")

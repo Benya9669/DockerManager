@@ -16,6 +16,7 @@ from .db import Base, SessionLocal, engine
 from .jobs import runner
 from .models import Job, User
 from . import registries, updater
+from .authsec import client_ip
 from .routers import auth, docker_res, jobs, projects, system, webhooks
 from .routers import registries as registries_router
 from .version import VERSION
@@ -96,7 +97,49 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Docker Manager", lifespan=lifespan)
+SECURITY_HEADERS = [
+    (b"content-security-policy",
+     b"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+     b"font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; "
+     b"frame-ancestors 'none'; form-action 'self'"),
+    (b"x-frame-options", b"DENY"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+    (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
+]
+
+
+class SecurityMiddleware:
+    """Pure ASGI: remembers client IP for the audit log and adds security headers."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+        client = scope.get("client")
+        client_ip.set(client[0] if client else "")
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        is_https = scope.get("scheme") == "https"
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers += SECURITY_HEADERS
+                if is_https:
+                    headers.append((b"strict-transport-security", b"max-age=31536000"))
+                if scope["path"].startswith("/api/"):
+                    headers.append((b"cache-control", b"no-store"))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+app = FastAPI(title="Docker Manager", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(SecurityMiddleware)
 for r in (auth.router, projects.router, jobs.router, docker_res.router, webhooks.router,
           system.router, registries_router.router):
     app.include_router(r)
