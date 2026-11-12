@@ -1,3 +1,4 @@
+import { t, tf } from "../i18n";
 import { useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -21,13 +22,13 @@ export function ImagesPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Образы <span className="muted small">{items.length} · {fmtBytes(total)}</span></h1>
+        <h1>{t("Образы")} <span className="muted small">{items.length} · {fmtBytes(total)}</span></h1>
         <div className="row">
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="all">все</option><option value="used">используются</option>
-            <option value="unused">не используются</option><option value="dangling">dangling (&lt;none&gt;)</option>
+            <option value="all">{t("все")}</option><option value="used">{t("используются")}</option>
+            <option value="unused">{t("не используются")}</option><option value="dangling">dangling (&lt;none&gt;)</option>
           </select>
-          <input placeholder="Фильтр…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder={t("Фильтр…")} value={q} onChange={(e) => setQ(e.target.value)} />
           {can("operator") && (
             <form className="row" onSubmit={async (e) => {
               e.preventDefault();
@@ -44,7 +45,7 @@ export function ImagesPage() {
       {job && <JobPanel jobId={job} title={`docker pull ${pull}`} onClose={() => setJob(null)} onDone={list.reload} height={200} />}
       <Loading error={list.error} loading={list.loading && !list.data} />
       <table className="table">
-        <thead><tr><th>Теги</th><th>ID</th><th>Проект</th><th>Размер</th><th>Создан</th><th>Статус</th><th /></tr></thead>
+        <thead><tr><th>{t("Теги")}</th><th>ID</th><th>{t("Проект")}</th><th>{t("Размер")}</th><th>{t("Создан")}</th><th>{t("Статус")}</th><th /></tr></thead>
         <tbody>
           {items.map((i) => (
             <tr key={i.id}>
@@ -53,12 +54,12 @@ export function ImagesPage() {
               <td>{i.project || <span className="muted">—</span>}</td>
               <td>{fmtBytes(i.size)}</td>
               <td className="small">{fmtAgo(i.created)}</td>
-              <td>{i.in_use ? <span className="badge green">используется</span> : <span className="badge gray">не используется</span>}</td>
+              <td>{i.in_use ? <span className="badge green">{t("используется")}</span> : <span className="badge gray">{t("не используется")}</span>}</td>
               <td className="actions">
                 {can("admin") && (
-                  <ActionButton className="btn sm danger" confirm={`Удалить образ ${i.tags[0] || i.short_id}?`} onClick={async () => {
+                  <ActionButton className="btn sm danger" confirm={tf("Удалить образ {0}?", i.tags[0] || i.short_id)} onClick={async () => {
                     await api(withServer(`/docker/images/${encodeURIComponent(i.id)}?force=${i.tags.length > 1 ? "true" : "false"}`, serverId), { method: "DELETE" });
-                    toast("Образ удалён");
+                    toast(t("Образ удалён"));
                     list.reload();
                   }}>🗑</ActionButton>
                 )}
@@ -77,10 +78,10 @@ export function VolumesPage() {
   const list = useFetch<any[]>(() => api(withServer("/docker/volumes", serverId)), [serverId], 15000);
   return (
     <div>
-      <div className="page-head"><h1>Тома</h1></div>
+      <div className="page-head"><h1>{t("Тома")}</h1></div>
       <Loading error={list.error} loading={list.loading && !list.data} />
       <table className="table">
-        <thead><tr><th>Имя</th><th>Проект</th><th>Драйвер</th><th>Создан</th><th>Статус</th><th /></tr></thead>
+        <thead><tr><th>{t("Имя")}</th><th>{t("Проект")}</th><th>{t("Драйвер")}</th><th>{t("Создан")}</th><th>{t("Статус")}</th><th /></tr></thead>
         <tbody>
           {(list.data || []).map((v) => (
             <tr key={v.name}>
@@ -88,10 +89,10 @@ export function VolumesPage() {
               <td>{v.project || <span className="muted">—</span>}</td>
               <td>{v.driver}</td>
               <td className="small">{fmtAgo(v.created)}</td>
-              <td>{v.in_use ? <span className="badge green">используется</span> : <span className="badge gray">свободен</span>}</td>
+              <td>{v.in_use ? <span className="badge green">{t("используется")}</span> : <span className="badge gray">{t("свободен")}</span>}</td>
               <td className="actions">
                 {can("admin") && !v.in_use && (
-                  <ActionButton className="btn sm danger" confirm={`Удалить том ${v.name}? ДАННЫЕ БУДУТ ПОТЕРЯНЫ.`} onClick={async () => {
+                  <ActionButton className="btn sm danger" confirm={tf("Удалить том {0}? ДАННЫЕ БУДУТ ПОТЕРЯНЫ.", v.name)} onClick={async () => {
                     await api(withServer(`/docker/volumes/${encodeURIComponent(v.name)}`, serverId), { method: "DELETE" });
                     list.reload();
                   }}>🗑</ActionButton>
@@ -111,10 +112,10 @@ export function NetworksPage() {
   const list = useFetch<any[]>(() => api(withServer("/docker/networks", serverId)), [serverId], 15000);
   return (
     <div>
-      <div className="page-head"><h1>Сети</h1></div>
+      <div className="page-head"><h1>{t("Сети")}</h1></div>
       <Loading error={list.error} loading={list.loading && !list.data} />
       <table className="table">
-        <thead><tr><th>Имя</th><th>ID</th><th>Проект</th><th>Драйвер</th><th>Подсети</th><th /></tr></thead>
+        <thead><tr><th>{t("Имя")}</th><th>ID</th><th>{t("Проект")}</th><th>{t("Драйвер")}</th><th>{t("Подсети")}</th><th /></tr></thead>
         <tbody>
           {(list.data || []).map((n) => (
             <tr key={n.id}>
@@ -125,7 +126,7 @@ export function NetworksPage() {
               <td className="mono small">{n.subnets.join(", ")}</td>
               <td className="actions">
                 {can("admin") && !n.builtin && (
-                  <ActionButton className="btn sm danger" confirm={`Удалить сеть ${n.name}?`} onClick={async () => {
+                  <ActionButton className="btn sm danger" confirm={tf("Удалить сеть {0}?", n.name)} onClick={async () => {
                     await api(withServer(`/docker/networks/${n.id}`, serverId), { method: "DELETE" });
                     list.reload();
                   }}>🗑</ActionButton>

@@ -1,3 +1,4 @@
+import { t, tf } from "../i18n";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, wsUrl } from "../api";
@@ -47,9 +48,9 @@ export function ProjectPage() {
     <div>
       <div className="page-head">
         <div>
-          <div className="muted small"><Link to="/">Проекты</Link> /</div>
+          <div className="muted small"><Link to="/">{t("Проекты")}</Link> /</div>
           <h1>{p.name} <span className="muted small">{p.slug}</span></h1>
-          {p.server_name && <div className="small">🖥 Хост: <b>{p.server_name}</b></div>}
+          {p.server_name && <div className="small">{t("🖥 Хост:")} <b>{p.server_name}</b></div>}
           {p.description && <div className="muted">{p.description}</div>}
         </div>
         {atLeast(p.my_role, "operator") && <ProjectToolbar p={p} runAction={runAction} />}
@@ -65,7 +66,7 @@ export function ProjectPage() {
           onDone={(s) => {
             proj.reload();
             setRefreshKey((k) => k + 1);
-            toast(`${jobTitle || "Задача"}: ${s === "success" ? "успешно" : s}`, s === "success" ? "ok" : "err");
+            toast(`${jobTitle || t("Задача")}: ${s === "success" ? t("успешно") : s}`, s === "success" ? "ok" : "err");
           }}
         />
       )}
@@ -74,14 +75,14 @@ export function ProjectPage() {
         active={tab}
         onChange={changeTab}
         tabs={[
-          ["overview", "Сервисы"],
-          ["logs", "Логи"],
-          ["monitoring", "Мониторинг"],
-          ...(atLeast(p.my_role, "operator") ? ([["env", "Переменные (.env)"], ["files", "Файлы"]] as [string, string][]) : []),
+          ["overview", t("Сервисы")],
+          ["logs", t("Логи")],
+          ["monitoring", t("Мониторинг")],
+          ...(atLeast(p.my_role, "operator") ? ([["env", t("Переменные (.env)")], ["files", t("Файлы")]] as [string, string][]) : []),
           ...(p.source === "git" ? ([["git", "Git"]] as [string, string][]) : []),
-          ["deploys", "Деплои"],
-          ["jobs", "История"],
-          ...(can("admin") ? ([["settings", "Настройки"]] as [string, string][]) : []),
+          ["deploys", t("Деплои")],
+          ["jobs", t("История")],
+          ...(can("admin") ? ([["settings", t("Настройки")]] as [string, string][]) : []),
         ]}
       />
       <div className="tab-body">
@@ -106,30 +107,30 @@ function ProjectToolbar({ p, runAction }: { p: any; runAction: (a: string, body?
   const dis = p.busy;
   return (
     <div className="toolbar">
-      <button className="btn primary" disabled={dis} title="предпросмотр изменений → деплой с проверкой здоровья и автооткатом"
-        onClick={() => setPreview(true)}>🚀 Деплой</button>
+      <button className="btn primary" disabled={dis} title={t("предпросмотр изменений → деплой с проверкой здоровья и автооткатом")}
+        onClick={() => setPreview(true)}>{t("🚀 Деплой")}</button>
       {preview && (
         <DeployPreview p={p} noCache={noCache} onClose={() => setPreview(false)}
-          onDeploy={async () => { setPreview(false); await runAction("deploy", { no_cache: noCache }, "Деплой"); }} />
+          onDeploy={async () => { setPreview(false); await runAction("deploy", { no_cache: noCache }, t("Деплой")); }} />
       )}
-      <ActionButton disabled={dis} onClick={() => runAction("up", {}, "Запуск (up -d)")}>▶ Up</ActionButton>
+      <ActionButton disabled={dis} onClick={() => runAction("up", {}, t("Запуск (up -d)"))}>▶ Up</ActionButton>
       <div className="btn-group">
-        <ActionButton disabled={dis} title="docker compose build --pull" onClick={() => runAction("build", { no_cache: noCache }, "Сборка")}>🔨 Build</ActionButton>
-        <ActionButton disabled={dis} title="build + пересоздание контейнеров" onClick={() => runAction("rebuild", { no_cache: noCache }, "Пересборка")}>♻ Rebuild</ActionButton>
-        <label className="check" title="--no-cache"><input type="checkbox" checked={noCache} onChange={(e) => setNoCache(e.target.checked)} />без кэша</label>
+        <ActionButton disabled={dis} title="docker compose build --pull" onClick={() => runAction("build", { no_cache: noCache }, t("Сборка"))}>🔨 Build</ActionButton>
+        <ActionButton disabled={dis} title={t("build + пересоздание контейнеров")} onClick={() => runAction("rebuild", { no_cache: noCache }, t("Пересборка"))}>♻ Rebuild</ActionButton>
+        <label className="check" title="--no-cache"><input type="checkbox" checked={noCache} onChange={(e) => setNoCache(e.target.checked)} />{t("без кэша")}</label>
       </div>
-      <ActionButton disabled={dis} onClick={() => runAction("restart", {}, "Перезапуск")}>⟳ Restart</ActionButton>
-      <ActionButton disabled={dis} onClick={() => runAction("pull", {}, "Pull образов")}>⬇ Pull</ActionButton>
-      <ActionButton disabled={dis} onClick={() => runAction("stop", {}, "Остановка")}>⏸ Stop</ActionButton>
-      <ActionButton disabled={dis} className="btn danger" confirm="Остановить и удалить контейнеры проекта (docker compose down)?"
+      <ActionButton disabled={dis} onClick={() => runAction("restart", {}, t("Перезапуск"))}>⟳ Restart</ActionButton>
+      <ActionButton disabled={dis} onClick={() => runAction("pull", {}, t("Pull образов"))}>⬇ Pull</ActionButton>
+      <ActionButton disabled={dis} onClick={() => runAction("stop", {}, t("Остановка"))}>⏸ Stop</ActionButton>
+      <ActionButton disabled={dis} className="btn danger" confirm={t("Остановить и удалить контейнеры проекта (docker compose down)?")}
         onClick={() => runAction("down", {}, "Down")}>⏹ Down</ActionButton>
-      <ActionButton disabled={dis} title="удалить остановленные контейнеры и старые образы проекта"
-        confirm="Удалить остановленные контейнеры проекта и неиспользуемые образы, собранные для него?"
-        onClick={() => runAction("cleanup", {}, "Очистка проекта")}>🧹 Очистка</ActionButton>
+      <ActionButton disabled={dis} title={t("удалить остановленные контейнеры и старые образы проекта")}
+        confirm={t("Удалить остановленные контейнеры проекта и неиспользуемые образы, собранные для него?")}
+        onClick={() => runAction("cleanup", {}, t("Очистка проекта"))}>{t("🧹 Очистка")}</ActionButton>
       <ActionButton className="btn ghost" title="docker compose config" onClick={async () => {
         const r = await api(`/projects/${p.id}/config`);
-        setShowConfig((r.ok ? "" : "# ОШИБКА\n") + r.output);
-      }}>Проверить конфиг</ActionButton>
+        setShowConfig((r.ok ? "" : `# ${t("ОШИБКА")}\n`) + r.output);
+      }}>{t("Проверить конфиг")}</ActionButton>
       {showConfig !== null && (
         <Modal title="docker compose config" onClose={() => setShowConfig(null)} wide>
           <Editor value={showConfig} readOnly filename="config.yml" />
@@ -145,23 +146,23 @@ function EnvSelector({ p, onChange }: { p: any; onChange: () => void }) {
   const list: string[] = files.data?.files || [];
   return (
     <div className="env-bar">
-      <span className="muted">Активный env-файл:</span>
+      <span className="muted">{t("Активный env-файл:")}</span>
       <select
         disabled={!atLeast(p.my_role, "operator")}
         value={p.env_file}
         onChange={async (e) => {
           try {
             await api(`/projects/${p.id}/env`, { body: { path: e.target.value } });
-            toast(`Env: ${e.target.value || "не используется"}. Примените: Up / Деплой`);
+            toast(tf("Env: {0}. Примените: Up / Деплой", e.target.value || t("не используется")));
             onChange();
           } catch (err) {
             toastErr(err);
           }
         }}
       >
-        <option value="">— не используется —</option>
+        <option value="">{t("— не используется —")}</option>
         {list.map((f) => <option key={f} value={f}>{f}</option>)}
-        {p.env_file && !list.includes(p.env_file) && <option value={p.env_file}>{p.env_file} (не найден)</option>}
+        {p.env_file && !list.includes(p.env_file) && <option value={p.env_file}>{p.env_file} {t("(не найден)")}</option>}
       </select>
       <span className="muted small">compose: {p.compose_files}</span>
     </div>
@@ -175,13 +176,13 @@ function ServicesTab({ p, runAction, refreshKey }: { p: any; runAction: any; ref
   const d = s.data;
   return (
     <div>
-      {d.config_error && <div className="alert err"><b>Ошибка compose:</b> <pre>{d.config_error}</pre></div>}
+      {d.config_error && <div className="alert err"><b>{t("Ошибка compose:")}</b> <pre>{d.config_error}</pre></div>}
       {d.docker_error && <div className="alert err">{d.docker_error}</div>}
-      {!d.services.length && !d.config_error && <div className="empty">Сервисов нет</div>}
+      {!d.services.length && !d.config_error && <div className="empty">{t("Сервисов нет")}</div>}
       {d.services.length > 0 && (
         <table className="table">
           <thead>
-            <tr><th>Сервис</th><th>Контейнер</th><th>Статус</th><th>Порты</th><th>Образ</th><th /></tr>
+            <tr><th>{t("Сервис")}</th><th>{t("Контейнер")}</th><th>{t("Статус")}</th><th>{t("Порты")}</th><th>{t("Образ")}</th><th /></tr>
           </thead>
           <tbody>
             {d.services.map((svc: any) => {
@@ -205,7 +206,7 @@ function ServicesTab({ p, runAction, refreshKey }: { p: any; runAction: any; ref
                         <ActionButton className="btn sm" disabled={p.busy} title="build + recreate" onClick={() => runAction("rebuild", { service: svc.name }, `Rebuild ${svc.name}`)}>🔨</ActionButton>
                       </>
                     )}
-                    {c && <Link className="btn sm" to={`/containers/${c.id}?tab=logs${p.server_id ? `&server=${p.server_id}` : ""}`}>Логи</Link>}
+                    {c && <Link className="btn sm" to={`/containers/${c.id}?tab=logs${p.server_id ? `&server=${p.server_id}` : ""}`}>{t("Логи")}</Link>}
                     {c && atLeast(p.my_role, "operator") && c.state === "running" && <Link className="btn sm" to={`/containers/${c.id}?tab=shell${p.server_id ? `&server=${p.server_id}` : ""}`}>Shell</Link>}
                   </td>
                 </tr>
@@ -224,7 +225,7 @@ function DeployPreview({ p, noCache, onClose, onDeploy }: { p: any; noCache: boo
   const d = pv.data;
   const g = d?.git;
   return (
-    <Modal title={`Деплой: ${p.name}`} onClose={onClose} wide>
+    <Modal title={tf("Деплой: {0}", p.name)} onClose={onClose} wide>
       <div className="stack">
         <Loading error={pv.error} loading={pv.loading && !d} />
         {d && (
@@ -233,7 +234,7 @@ function DeployPreview({ p, noCache, onClose, onDeploy }: { p: any; noCache: boo
             {g && !g.error && (
               g.commits.length ? (
                 <div className="stack-sm">
-                  <b>Придут коммиты ({g.commits.length}), изменено файлов: {g.files_changed}</b>
+                  <b>{t("Придут коммиты (")}{g.commits.length}{t("), изменено файлов:")} {g.files_changed}</b>
                   <table className="table">
                     <tbody>
                       {g.commits.map((c: any) => (
@@ -244,31 +245,31 @@ function DeployPreview({ p, noCache, onClose, onDeploy }: { p: any; noCache: boo
                   {g.stat && <pre className="small">{g.stat}</pre>}
                   {g.compose_diff && (
                     <>
-                      <b>Изменения compose-файлов</b>
+                      <b>{t("Изменения compose-файлов")}</b>
                       <Editor value={g.compose_diff} readOnly filename="changes.diff" height="30vh" />
                     </>
                   )}
                 </div>
-              ) : <div className="hint">Новых коммитов нет: будут обновлены образы и пересозданы изменившиеся контейнеры.</div>
+              ) : <div className="hint">{t("Новых коммитов нет: будут обновлены образы и пересозданы изменившиеся контейнеры.")}</div>
             )}
-            {d.source !== "git" && <div className="hint">Проект без git: деплой = pull образов + build + up.</div>}
+            {d.source !== "git" && <div className="hint">{t("Проект без git: деплой = pull образов + build + up.")}</div>}
             {d.local_changes?.length > 0 && (
               <div className="alert err">
-                Локальные изменения в репозитории ({d.local_changes.length}). Pull может не пройти, если они конфликтуют:
+                {t("Локальные изменения в репозитории (")}{d.local_changes.length}{t("). Pull может не пройти, если они конфликтуют:")}
                 <pre className="small">{d.local_changes.join("\n")}</pre>
               </div>
             )}
-            {d.config_ok === false && <div className="alert err"><b>compose config с ошибкой:</b><pre className="small">{d.config_error}</pre></div>}
+            {d.config_ok === false && <div className="alert err"><b>{t("compose config с ошибкой:")}</b><pre className="small">{d.config_error}</pre></div>}
             <div className="hint">
-              После деплоя панель ждёт до {p.health_timeout ?? 90} с, пока контейнеры станут здоровыми.{" "}
-              {p.auto_rollback ? "Если не станут — автоматически откатит к текущей версии." : "Автооткат выключен в настройках проекта."}
-              {noCache && " Сборка без кэша."}
+              {t("После деплоя панель ждёт до")} {p.health_timeout ?? 90} {t("с, пока контейнеры станут здоровыми.")}{" "}
+              {p.auto_rollback ? t("Если не станут — автоматически откатит к текущей версии.") : t("Автооткат выключен в настройках проекта.")}
+              {noCache && t(" Сборка без кэша.")}
             </div>
           </>
         )}
         <div className="row end">
-          <button className="btn ghost" onClick={onClose}>Отмена</button>
-          <ActionButton className="btn primary" disabled={!d} onClick={onDeploy}>🚀 Запустить деплой</ActionButton>
+          <button className="btn ghost" onClick={onClose}>{t("Отмена")}</button>
+          <ActionButton className="btn primary" disabled={!d} onClick={onDeploy}>{t("🚀 Запустить деплой")}</ActionButton>
         </div>
       </div>
     </Modal>
@@ -280,36 +281,36 @@ function DeploymentsTab({ p, open, refreshKey }: { p: any; open: (id: number, t:
   const { can } = useAuth();
   const list = useFetch<any[]>(() => api(`/projects/${p.id}/deployments`), [p.id, refreshKey], 10000);
   const label: Record<string, [string, string]> = {
-    success: ["green", "успешно"], failed: ["red", "ошибка"], rolled_back: ["yellow", "откачен"], running: ["yellow", "идёт"],
+    success: ["green", t("успешно")], failed: ["red", t("ошибка")], rolled_back: ["yellow", t("откачен")], running: ["yellow", t("идёт")],
   };
   const latestOk = (list.data || []).find((d) => d.status === "success");
   return (
     <div className="stack">
       <div className="hint">
-        Перед каждым деплоем сохраняется снимок: коммит, compose-файлы, активный .env и ID образов. Можно вернуть проект к состоянию после любого успешного деплоя.
+        {t("Перед каждым деплоем сохраняется снимок: коммит, compose-файлы, активный .env и ID образов. Можно вернуть проект к состоянию после любого успешного деплоя.")}
       </div>
       <Loading error={list.error} loading={list.loading && !list.data} />
-      {list.data && !list.data.length && <div className="empty">Деплоев ещё не было</div>}
+      {list.data && !list.data.length && <div className="empty">{t("Деплоев ещё не было")}</div>}
       {!!list.data?.length && (
         <table className="table">
-          <thead><tr><th>#</th><th>Тип</th><th>Статус</th><th>Коммит</th><th>Кто</th><th>Когда</th><th /></tr></thead>
+          <thead><tr><th>#</th><th>{t("Тип")}</th><th>{t("Статус")}</th><th>{t("Коммит")}</th><th>{t("Кто")}</th><th>{t("Когда")}</th><th /></tr></thead>
           <tbody>
             {list.data.map((d) => {
               const [cls, text] = label[d.status] || ["gray", d.status];
               return (
                 <tr key={d.id}>
                   <td>{d.id}</td>
-                  <td>{d.kind === "rollback" ? "откат" : "деплой"}{d.message && <div className="muted small">{d.message}</div>}</td>
-                  <td><span className={`badge ${cls}`}>{text}</span>{latestOk?.id === d.id && <span className="badge green" style={{ marginLeft: 4 }}>текущий</span>}</td>
+                  <td>{d.kind === "rollback" ? t("откат") : t("деплой")}{d.message && <div className="muted small">{d.message}</div>}</td>
+                  <td><span className={`badge ${cls}`}>{text}</span>{latestOk?.id === d.id && <span className="badge green" style={{ marginLeft: 4 }}>{t("текущий")}</span>}</td>
                   <td className="mono small">{d.commit_before ? d.commit_before.slice(0, 8) : "—"}{d.commit_after && d.commit_after !== d.commit_before && ` → ${d.commit_after.slice(0, 8)}`}</td>
                   <td>{d.username}</td>
                   <td className="small">{fmtDate(d.created_at)}</td>
                   <td className="actions">
-                    {d.job_id && <button className="btn sm" onClick={() => open(d.job_id, `деплой #${d.id}`)}>Лог</button>}
+                    {d.job_id && <button className="btn sm" onClick={() => open(d.job_id, tf("деплой #{0}", d.id))}>{t("Лог")}</button>}
                     {atLeast(p.my_role, "operator") && d.can_rollback && latestOk?.id !== d.id && (
-                      <ActionButton className="btn sm" disabled={p.busy} confirm={`Вернуть проект к состоянию деплоя #${d.id}?`}
-                        onClick={async () => open((await api(`/projects/${p.id}/deployments/${d.id}/rollback`, { method: "POST" })).job_id, `откат к #${d.id}`)}>
-                        ↺ Откатить сюда
+                      <ActionButton className="btn sm" disabled={p.busy} confirm={tf("Вернуть проект к состоянию деплоя #{0}?", d.id)}
+                        onClick={async () => open((await api(`/projects/${p.id}/deployments/${d.id}/rollback`, { method: "POST" })).job_id, tf("откат к #{0}", d.id))}>
+                        {t("↺ Откатить сюда")}
                       </ActionButton>
                     )}
                   </td>
@@ -336,17 +337,17 @@ function ProjectLogs({ p }: { p: any }) {
   return (
     <div>
       <div className="row wrap mb">
-        <span className="muted">Сервисы:</span>
-        <button className={`btn sm ${selected.length === 0 ? "primary" : ""}`} onClick={() => setSelected([])}>все</button>
+        <span className="muted">{t("Сервисы:")}</span>
+        <button className={`btn sm ${selected.length === 0 ? "primary" : ""}`} onClick={() => setSelected([])}>{t("все")}</button>
         {names.map((n) => (
           <button key={n} className={`btn sm ${selected.includes(n) ? "primary" : ""}`} onClick={() => toggle(n)}>{n}</button>
         ))}
-        <span className="muted">строк:</span>
+        <span className="muted">{t("строк:")}</span>
         <select value={tail} onChange={(e) => setTail(e.target.value)}>
           {["50", "200", "1000", "5000", "all"].map((t) => <option key={t}>{t}</option>)}
         </select>
-        <label className="check"><input type="checkbox" checked={ts} onChange={(e) => setTs(e.target.checked)} />время</label>
-        <button className="btn sm" onClick={() => setKey((k) => k + 1)}>Переподключить</button>
+        <label className="check"><input type="checkbox" checked={ts} onChange={(e) => setTs(e.target.checked)} />{t("время")}</label>
+        <button className="btn sm" onClick={() => setKey((k) => k + 1)}>{t("Переподключить")}</button>
       </div>
       <XTerm
         key={key}
@@ -385,9 +386,9 @@ function EnvTab({ p, onChange }: { p: any; onChange: () => void }) {
   }, [sel]);
 
   const create = async () => {
-    const name = prompt("Имя нового env-файла", ".env.production");
+    const name = prompt(t("Имя нового env-файла"), ".env.production");
     if (!name) return;
-    const base = sel ? confirm(`Скопировать содержимое из ${sel}?`) : false;
+    const base = sel ? confirm(tf("Скопировать содержимое из {0}?", sel)) : false;
     await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: name, content: base ? content : "" } });
     await files.reload();
     setSel(name);
@@ -399,11 +400,11 @@ function EnvTab({ p, onChange }: { p: any; onChange: () => void }) {
         {list.map((f) => (
           <div key={f} className={`side-item ${sel === f ? "active" : ""}`} onClick={() => setSel(f)}>
             <span>{f}</span>
-            {p.env_file === f && <span className="badge green">активен</span>}
+            {p.env_file === f && <span className="badge green">{t("активен")}</span>}
           </div>
         ))}
-        {!list.length && <div className="muted pad">env-файлов не найдено</div>}
-        <ActionButton className="btn full" onClick={create}>+ Новый env-файл</ActionButton>
+        {!list.length && <div className="muted pad">{t("env-файлов не найдено")}</div>}
+        <ActionButton className="btn full" onClick={create}>{t("+ Новый env-файл")}</ActionButton>
       </div>
       <div className="grow">
         {sel && (
@@ -414,21 +415,21 @@ function EnvTab({ p, onChange }: { p: any; onChange: () => void }) {
                 {p.env_file !== sel && (
                   <ActionButton onClick={async () => {
                     await api(`/projects/${p.id}/env`, { body: { path: sel } });
-                    toast(`Активный env: ${sel}`);
+                    toast(tf("Активный env: {0}", sel));
                     onChange();
-                  }}>Сделать активным</ActionButton>
+                  }}>{t("Сделать активным")}</ActionButton>
                 )}
-                <ActionButton className="btn danger" confirm={`Удалить ${sel}?`} onClick={async () => {
+                <ActionButton className="btn danger" confirm={tf("Удалить {0}?", sel)} onClick={async () => {
                   await api(`/projects/${p.id}/files?path=${encodeURIComponent(sel)}`, { method: "DELETE" });
                   setSel(null);
                   files.reload();
                   onChange();
-                }}>Удалить</ActionButton>
+                }}>{t("Удалить")}</ActionButton>
                 <ActionButton className="btn primary" disabled={content === orig} onClick={async () => {
                   await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: sel, content } });
                   setOrig(content);
-                  toast("Сохранено. Чтобы применить — Up или Деплой");
-                }}>Сохранить</ActionButton>
+                  toast(t("Сохранено. Чтобы применить — Up или Деплой"));
+                }}>{t("Сохранить")}</ActionButton>
               </div>
             </div>
             <Editor value={content} onChange={setContent} filename={sel} />
@@ -473,18 +474,18 @@ function FilesTab({ p }: { p: any }) {
         </div>
         <div className="row mb">
           <ActionButton className="btn sm" onClick={async () => {
-            const n = prompt("Имя файла");
+            const n = prompt(t("Имя файла"));
             if (!n) return;
             await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: join(n), content: "" } });
             listing.reload();
             open(join(n));
-          }}>+ Файл</ActionButton>
+          }}>{t("+ Файл")}</ActionButton>
           <ActionButton className="btn sm" onClick={async () => {
-            const n = prompt("Имя папки");
+            const n = prompt(t("Имя папки"));
             if (!n) return;
             await api(`/projects/${p.id}/files/mkdir`, { body: { path: join(n) } });
             listing.reload();
-          }}>+ Папка</ActionButton>
+          }}>{t("+ Папка")}</ActionButton>
         </div>
         <Loading error={listing.error} loading={listing.loading && !listing.data} />
         {dir && <div className="side-item" onClick={() => setDir(crumbs.slice(0, -1).join("/"))}>⬆ ..</div>}
@@ -503,28 +504,28 @@ function FilesTab({ p }: { p: any }) {
               <b className="mono">{file}{content !== orig && " •"}</b>
               <div className="row">
                 <ActionButton className="btn" onClick={async () => {
-                  const n = prompt("Новый путь", file);
+                  const n = prompt(t("Новый путь"), file);
                   if (!n || n === file) return;
                   await api(`/projects/${p.id}/files/rename`, { body: { path: file, new_path: n } });
                   setFile(n);
                   listing.reload();
-                }}>Переименовать</ActionButton>
-                <ActionButton className="btn danger" confirm={`Удалить ${file}?`} onClick={async () => {
+                }}>{t("Переименовать")}</ActionButton>
+                <ActionButton className="btn danger" confirm={tf("Удалить {0}?", file)} onClick={async () => {
                   await api(`/projects/${p.id}/files?path=${encodeURIComponent(file)}`, { method: "DELETE" });
                   setFile(null);
                   listing.reload();
-                }}>Удалить</ActionButton>
+                }}>{t("Удалить")}</ActionButton>
                 <ActionButton className="btn primary" disabled={binary || content === orig} onClick={async () => {
                   await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: file, content } });
                   setOrig(content);
-                  toast("Сохранено");
-                }}>Сохранить</ActionButton>
+                  toast(t("Сохранено"));
+                }}>{t("Сохранить")}</ActionButton>
               </div>
             </div>
-            {binary ? <div className="empty">Бинарный файл — редактирование недоступно</div> : <Editor value={content} onChange={setContent} filename={file} />}
+            {binary ? <div className="empty">{t("Бинарный файл — редактирование недоступно")}</div> : <Editor value={content} onChange={setContent} filename={file} />}
           </>
         ) : (
-          <div className="empty">Выберите файл слева</div>
+          <div className="empty">{t("Выберите файл слева")}</div>
         )}
       </div>
     </div>
@@ -545,11 +546,11 @@ function GitTab({ p, startJob, refreshKey }: { p: any; startJob: (id: number, t:
   if (!s.is_repo)
     return (
       <div className="empty">
-        Репозиторий ещё не склонирован ({p.repo_url}).
+        {t("Репозиторий ещё не склонирован (")}{p.repo_url}).
         {can("admin") && (
           <div className="mt">
             <ActionButton className="btn primary" onClick={async () => startJob((await api(`/projects/${p.id}/git/clone`, { method: "POST" })).job_id, "git clone")}>
-              Клонировать
+              {t("Клонировать")}
             </ActionButton>
           </div>
         )}
@@ -562,31 +563,31 @@ function GitTab({ p, startJob, refreshKey }: { p: any; startJob: (id: number, t:
       <div className="card">
         <div className="row between wrap">
           <div className="stack-sm">
-            <div>Ветка: <b>⎇ {s.branch}</b> {s.upstream && <span className="muted">→ {s.upstream}</span>}</div>
+            <div>{t("Ветка:")} <b>⎇ {s.branch}</b> {s.upstream && <span className="muted">→ {s.upstream}</span>}</div>
             {s.commit?.short && (
               <div className="small">
                 <span className="mono">{s.commit.short}</span> {s.commit.subject} <span className="muted">— {s.commit.author}, {fmtAgo(s.commit.date)}</span>
               </div>
             )}
             <div className="row small">
-              {s.behind != null && <span className={`chip ${s.behind ? "yellow" : "green"}`}>отстаёт: {s.behind}</span>}
-              {s.ahead != null && <span className="chip">впереди: {s.ahead}</span>}
-              <span className={`chip ${s.changes.length ? "yellow" : ""}`}>локальных изменений: {s.changes.length}</span>
+              {s.behind != null && <span className={`chip ${s.behind ? "yellow" : "green"}`}>{t("отстаёт:")} {s.behind}</span>}
+              {s.ahead != null && <span className="chip">{t("впереди:")} {s.ahead}</span>}
+              <span className={`chip ${s.changes.length ? "yellow" : ""}`}>{t("локальных изменений:")} {s.changes.length}</span>
             </div>
           </div>
           {atLeast(p.my_role, "operator") && (
             <div className="row wrap">
-              <ActionButton onClick={async () => { st.setData(await api(`/projects/${p.id}/git/fetch`, { method: "POST" })); br.reload(); log.reload(); toast("Fetch выполнен"); }}>Fetch</ActionButton>
+              <ActionButton onClick={async () => { st.setData(await api(`/projects/${p.id}/git/fetch`, { method: "POST" })); br.reload(); log.reload(); toast(t("Fetch выполнен")); }}>Fetch</ActionButton>
               <ActionButton className="btn primary" disabled={p.busy} onClick={async () => startJob((await api(`/projects/${p.id}/git/pull`, { method: "POST" })).job_id, "git pull")}>Pull</ActionButton>
               <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-                <option value="">сменить ветку…</option>
+                <option value="">{t("сменить ветку…")}</option>
                 {branches.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
               <ActionButton disabled={!branch || branch === s.branch || p.busy} onClick={async () =>
                 startJob((await api(`/projects/${p.id}/git/checkout`, { body: { branch } })).job_id, `checkout ${branch}`)}>Checkout</ActionButton>
               {can("admin") && (
                 <ActionButton className="btn danger" disabled={p.busy}
-                  confirm="Сбросить все локальные изменения до состояния удалённой ветки (git reset --hard)? Неотслеживаемые файлы (.env) останутся."
+                  confirm={t("Сбросить все локальные изменения до состояния удалённой ветки (git reset --hard)? Неотслеживаемые файлы (.env) останутся.")}
                   onClick={async () => startJob((await api(`/projects/${p.id}/git/reset`, { method: "POST" })).job_id, "git reset --hard")}>Reset --hard</ActionButton>
               )}
             </div>
@@ -595,7 +596,7 @@ function GitTab({ p, startJob, refreshKey }: { p: any; startJob: (id: number, t:
         {s.changes.length > 0 && <pre className="mt small">{s.changes.join("\n")}</pre>}
       </div>
       <table className="table">
-        <thead><tr><th>Коммит</th><th>Сообщение</th><th>Автор</th><th>Дата</th></tr></thead>
+        <thead><tr><th>{t("Коммит")}</th><th>{t("Сообщение")}</th><th>{t("Автор")}</th><th>{t("Дата")}</th></tr></thead>
         <tbody>
           {(log.data || []).map((c) => (
             <tr key={c.hash}>
@@ -613,14 +614,14 @@ function ProjectJobs({ p, open, refreshKey }: { p: any; open: (id: number, t: st
   const jobs = useFetch<any[]>(() => api(`/jobs?project_id=${p.id}&limit=50`), [p.id, refreshKey], 10000);
   return (
     <table className="table">
-      <thead><tr><th>#</th><th>Действие</th><th>Статус</th><th>Кто</th><th>Начало</th><th>Длительность</th></tr></thead>
+      <thead><tr><th>#</th><th>{t("Действие")}</th><th>{t("Статус")}</th><th>{t("Кто")}</th><th>{t("Начало")}</th><th>{t("Длительность")}</th></tr></thead>
       <tbody>
         {(jobs.data || []).map((j) => (
           <tr key={j.id} className="clickable" onClick={() => open(j.id, j.action)}>
             <td>{j.id}</td><td className="mono">{j.action}</td>
-            <td>{j.status === "running" ? <span className="badge yellow">выполняется</span> : <StateBadge state={j.status} />}</td>
+            <td>{j.status === "running" ? <span className="badge yellow">{t("выполняется")}</span> : <StateBadge state={j.status} />}</td>
             <td>{j.username}</td><td className="small">{fmtDate(j.started_at)}</td>
-            <td className="small">{j.finished_at ? `${Math.round((new Date(j.finished_at).getTime() - new Date(j.started_at).getTime()) / 1000)} с` : "—"}</td>
+            <td className="small">{j.finished_at ? tf("{0} с", Math.round((new Date(j.finished_at).getTime() - new Date(j.started_at).getTime()) / 1000)) : "—"}</td>
           </tr>
         ))}
       </tbody>
@@ -646,87 +647,87 @@ function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (i
         e.preventDefault();
         try {
           await api(`/projects/${p.id}`, { method: "PATCH", body: f });
-          toast("Сохранено");
+          toast(t("Сохранено"));
           setF({ ...f, git_token: "" });
           onSaved();
         } catch (err) {
           toastErr(err);
         }
       }}>
-        <h3>Основное</h3>
+        <h3>{t("Основное")}</h3>
         <div className="cols">
-          <label>Название<input value={f.name} onChange={set("name")} /></label>
-          <label>Compose-файлы (через запятую)<input value={f.compose_files} onChange={set("compose_files")} /></label>
+          <label>{t("Название")}<input value={f.name} onChange={set("name")} /></label>
+          <label>{t("Compose-файлы (через запятую)")}<input value={f.compose_files} onChange={set("compose_files")} /></label>
         </div>
-        <label>Описание<input value={f.description} onChange={set("description")} /></label>
-        <div className="muted small">Путь: <span className="mono">{p.path}</span></div>
+        <label>{t("Описание")}<input value={f.description} onChange={set("description")} /></label>
+        <div className="muted small">{t("Путь:")} <span className="mono">{p.path}</span></div>
         <label>
-          Где запускать (Docker-хост)
+          {t("Где запускать (Docker-хост)")}
           <ServerPicker value={f.server_id} onChange={(v) => setF({ ...f, server_id: v, set_server: true })} />
         </label>
         {f.set_server && f.server_id !== p.server_id && (
           <div className="alert err">
-            Смена хоста не переносит контейнеры и тома: на старом хосте сделайте Down, после сохранения — Деплой на новом.
+            {t("Смена хоста не переносит контейнеры и тома: на старом хосте сделайте Down, после сохранения — Деплой на новом.")}
           </div>
         )}
         {p.source === "git" && (
           <>
             <h3>Git</h3>
-            <label>URL репозитория<input value={f.repo_url} onChange={set("repo_url")} /></label>
+            <label>{t("URL репозитория")}<input value={f.repo_url} onChange={set("repo_url")} /></label>
             <div className="cols">
-              <label>Git-пользователь<input value={f.git_username} onChange={set("git_username")} placeholder="oauth2" /></label>
+              <label>{t("Git-пользователь")}<input value={f.git_username} onChange={set("git_username")} placeholder="oauth2" /></label>
               <label>
-                Токен {p.has_token && <span className="badge green">сохранён</span>}
-                <input type="password" value={f.git_token} onChange={set("git_token")} placeholder={p.has_token ? "оставьте пустым, чтобы не менять" : ""} autoComplete="new-password" />
+                {t("Токен")} {p.has_token && <span className="badge green">{t("сохранён")}</span>}
+                <input type="password" value={f.git_token} onChange={set("git_token")} placeholder={p.has_token ? t("оставьте пустым, чтобы не менять") : ""} autoComplete="new-password" />
               </label>
             </div>
             <label>
-              SSH-ключ (для git@… URL)
+              {t("SSH-ключ (для git@… URL)")}
               <SshKeySelect value={f.ssh_key} onChange={(v) => setF({ ...f, ssh_key: v })} />
             </label>
             {p.has_token && (
-              <ActionButton className="btn sm ghost" confirm="Удалить сохранённый токен?" onClick={async () => {
+              <ActionButton className="btn sm ghost" confirm={t("Удалить сохранённый токен?")} onClick={async () => {
                 await api(`/projects/${p.id}`, { method: "PATCH", body: { clear_token: true } });
                 onSaved();
-              }}>Удалить токен</ActionButton>
+              }}>{t("Удалить токен")}</ActionButton>
             )}
-            <h3>Деплой</h3>
-            <label className="check"><input type="checkbox" checked={f.auto_rollback} onChange={set("auto_rollback")} /> Автооткат, если после деплоя контейнеры не поднялись</label>
-            <label className="inline">Ждать готовности контейнеров
-              <input type="number" min={10} max={1800} value={f.health_timeout} onChange={(e) => setF({ ...f, health_timeout: Number(e.target.value) })} style={{ width: 90 }} /> секунд
+            <h3>{t("Деплой")}</h3>
+            <label className="check"><input type="checkbox" checked={f.auto_rollback} onChange={set("auto_rollback")} /> {t("Автооткат, если после деплоя контейнеры не поднялись")}</label>
+            <label className="inline">{t("Ждать готовности контейнеров")}
+              <input type="number" min={10} max={1800} value={f.health_timeout} onChange={(e) => setF({ ...f, health_timeout: Number(e.target.value) })} style={{ width: 90 }} /> {t("секунд")}
             </label>
-            <h3>Вебхук (авто-деплой при push)</h3>
-            <label className="check"><input type="checkbox" checked={f.webhook_enabled} onChange={set("webhook_enabled")} /> Включён</label>
+            <h3>{t("Вебхук (авто-деплой при push)")}</h3>
+            <label className="check"><input type="checkbox" checked={f.webhook_enabled} onChange={set("webhook_enabled")} /> {t("Включён")}</label>
             <div className="hint">
               URL: <span className="mono">{webhookUrl}</span><br />
-              Секрет: <span className="mono">{p.webhook_secret}</span><br />
-              GitLab: поле «Secret token». GitHub/Gitea: «Secret», тип application/json. Деплой срабатывает только для ветки <b>{p.branch || "любой"}</b>.
+              {t("Секрет:")} <span className="mono">{p.webhook_secret}</span><br />
+              {t("GitLab: поле «Secret token». GitHub/Gitea: «Secret», тип application/json. Деплой срабатывает только для ветки")} <b>{p.branch || t("любой")}</b>.
             </div>
-            <ActionButton className="btn sm ghost" confirm="Сгенерировать новый секрет? Старый перестанет работать." onClick={async () => {
+            <ActionButton className="btn sm ghost" confirm={t("Сгенерировать новый секрет? Старый перестанет работать.")} onClick={async () => {
               await api(`/projects/${p.id}`, { method: "PATCH", body: { regenerate_webhook: true } });
               onSaved();
-            }}>Новый секрет</ActionButton>
+            }}>{t("Новый секрет")}</ActionButton>
           </>
         )}
-        <div className="row end"><button className="btn primary">Сохранить</button></div>
+        <div className="row end"><button className="btn primary">{t("Сохранить")}</button></div>
       </form>
 
       <div className="card danger-zone">
-        <h3>Удаление проекта</h3>
+        <h3>{t("Удаление проекта")}</h3>
         <div className="row wrap">
-          <ActionButton className="btn danger" confirm="Удалить проект из менеджера? Контейнеры и файлы останутся." onClick={async () => {
+          <ActionButton className="btn danger" confirm={t("Удалить проект из менеджера? Контейнеры и файлы останутся.")} onClick={async () => {
             await api(`/projects/${p.id}`, { method: "DELETE" });
             nav("/");
-          }}>Удалить из менеджера</ActionButton>
-          <ActionButton className="btn danger" confirm="Выполнить docker compose down и удалить проект? Файлы останутся." onClick={async () => {
+          }}>{t("Удалить из менеджера")}</ActionButton>
+          <ActionButton className="btn danger" confirm={t("Выполнить docker compose down и удалить проект? Файлы останутся.")} onClick={async () => {
             await api(`/projects/${p.id}?compose_down=true`, { method: "DELETE" });
             nav("/");
-          }}>Down + удалить</ActionButton>
+          }}>{t("Down + удалить")}</ActionButton>
           {p.managed && (
-            <ActionButton className="btn danger" confirm="Выполнить down, удалить проект И ВСЕ ЕГО ФАЙЛЫ на сервере? Это необратимо." onClick={async () => {
+            <ActionButton className="btn danger" confirm={t("Выполнить down, удалить проект И ВСЕ ЕГО ФАЙЛЫ на сервере? Это необратимо.")} onClick={async () => {
               await api(`/projects/${p.id}?compose_down=true&remove_files=true`, { method: "DELETE" });
               nav("/");
-            }}>Down + удалить вместе с файлами</ActionButton>
+            }}>{t("Down + удалить вместе с файлами")}</ActionButton>
           )}
         </div>
       </div>

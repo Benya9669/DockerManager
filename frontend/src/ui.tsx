@@ -1,3 +1,4 @@
+import { t, tf, LOCALE, getTheme, type Theme } from "./i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 // ---------- data hook ----------
@@ -91,8 +92,8 @@ export function StateBadge({ state }: { state?: string | null }) {
     s === "exited" || s === "failed" || s === "dead" ? "red" :
     s === "paused" || s === "restarting" || s === "running-job" || s === "cancelled" ? "yellow" : "gray";
   const label: Record<string, string> = {
-    running: "работает", exited: "остановлен", created: "создан", paused: "пауза", restarting: "перезапуск",
-    dead: "мёртв", none: "не создан", success: "успех", failed: "ошибка", cancelled: "отменён",
+    running: t("работает"), exited: t("остановлен"), created: t("создан"), paused: t("пауза"), restarting: t("перезапуск"),
+    dead: t("мёртв"), none: t("не создан"), success: t("успех"), failed: t("ошибка"), cancelled: t("отменён"),
   };
   return <span className={`badge ${cls}`}>{label[s] || s}</span>;
 }
@@ -111,7 +112,7 @@ export function Tabs({ tabs, active, onChange }: { tabs: [string, string][]; act
 
 export function Loading({ error, loading }: { error?: string | null; loading?: boolean }) {
   if (error) return <div className="alert err">{error}</div>;
-  if (loading) return <div className="muted pad">Загрузка…</div>;
+  if (loading) return <div className="muted pad">{t("Загрузка…")}</div>;
   return null;
 }
 
@@ -158,17 +159,17 @@ export function fmtBytes(n?: number | null) {
 export function fmtDate(v?: string | number | null) {
   if (!v) return "—";
   const d = typeof v === "number" ? new Date(v * 1000) : new Date(v);
-  return d.toLocaleString("ru-RU");
+  return d.toLocaleString(LOCALE);
 }
 
 export function fmtAgo(v?: string | number | null) {
   if (!v) return "—";
   const d = typeof v === "number" ? new Date(v * 1000) : new Date(v);
   const s = (Date.now() - d.getTime()) / 1000;
-  if (s < 60) return "только что";
-  if (s < 3600) return `${Math.floor(s / 60)} мин назад`;
-  if (s < 86400) return `${Math.floor(s / 3600)} ч назад`;
-  return `${Math.floor(s / 86400)} дн назад`;
+  if (s < 60) return t("только что");
+  if (s < 3600) return tf("{0} мин назад", Math.floor(s / 60));
+  if (s < 86400) return tf("{0} ч назад", Math.floor(s / 3600));
+  return tf("{0} дн назад", Math.floor(s / 86400));
 }
 
 export function Ports({ ports }: { ports: any[] }) {
@@ -187,4 +188,15 @@ export function Ports({ ports }: { ports: any[] }) {
       })}
     </span>
   );
+}
+
+/** Current UI theme; re-renders when it is switched. */
+export function useTheme(): Theme {
+  const [th, setTh] = useState<Theme>(getTheme());
+  useEffect(() => {
+    const h = (e: Event) => setTh((e as CustomEvent).detail);
+    window.addEventListener("dm-theme", h);
+    return () => window.removeEventListener("dm-theme", h);
+  }, []);
+  return th;
 }

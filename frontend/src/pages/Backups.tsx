@@ -1,9 +1,10 @@
+import { t, tf } from "../i18n";
 import { useState } from "react";
 import { api, downloadFile } from "../api";
 import { JobPanel } from "../JobPanel";
 import { ActionButton, Loading, fmtBytes, fmtDate, toastErr, useFetch } from "../ui";
 
-const KIND: Record<string, string> = { panel: "панель", files: "файлы проекта", volume: "том" };
+const KIND: Record<string, string> = { panel: t("панель"), files: t("файлы проекта"), volume: t("том") };
 
 export function BackupsPage() {
   const list = useFetch<any>(() => api("/backups"), [], 15000);
@@ -18,47 +19,46 @@ export function BackupsPage() {
 
   return (
     <div className="stack">
-      <div className="page-head"><h1>Бэкапы</h1></div>
+      <div className="page-head"><h1>{t("Бэкапы")}</h1></div>
       <div className="card stack-sm">
         <div className="row wrap">
-          <ActionButton onClick={() => run("Бэкап панели")(api("/backups/panel", { method: "POST" }))}>Бэкап панели</ActionButton>
-          <ActionButton className="btn primary" confirm="Сделать бэкап панели и всех проектов (файлы + тома)?"
-            onClick={() => run("Полный бэкап")(api("/backups/all", { method: "POST" }))}>Полный бэкап</ActionButton>
+          <ActionButton onClick={() => run(t("Бэкап панели"))(api("/backups/panel", { method: "POST" }))}>{t("Бэкап панели")}</ActionButton>
+          <ActionButton className="btn primary" confirm={t("Сделать бэкап панели и всех проектов (файлы + тома)?")}
+            onClick={() => run(t("Полный бэкап"))(api("/backups/all", { method: "POST" }))}>{t("Полный бэкап")}</ActionButton>
           <span className="muted">|</span>
           <select value={pid} onChange={(e) => setPid(e.target.value)}>
-            <option value="">проект…</option>
+            <option value="">{t("проект…")}</option>
             {(projects.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <label className="check" title="docker compose stop на время архивации томов — консистентные данные БД">
-            <input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} />остановить на время бэкапа
+          <label className="check" title={t("docker compose stop на время архивации томов — консистентные данные БД")}>
+            <input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} />{t("остановить на время бэкапа")}
           </label>
-          <ActionButton disabled={!pid} onClick={() => run("Бэкап проекта")(api(`/backups/project/${pid}`, { body: { stop } }))}>
-            Бэкап проекта
+          <ActionButton disabled={!pid} onClick={() => run(t("Бэкап проекта"))(api(`/backups/project/${pid}`, { body: { stop } }))}>
+            {t("Бэкап проекта")}
           </ActionButton>
         </div>
         {s && (
           <div className="muted small">
-            Папка: <span className="mono">{s.dir}</span> · хранится последних: {s.keep} на объект ·
-            по расписанию: {s.interval_hours ? `каждые ${s.interval_hours} ч` : "выкл (DM_BACKUP_INTERVAL_HOURS)"}
+            {t("Папка:")} <span className="mono">{s.dir}</span> {t("· хранится последних:")} {s.keep} {t("на объект · по расписанию:")} {s.interval_hours ? tf("каждые {0} ч", s.interval_hours) : t("выкл (DM_BACKUP_INTERVAL_HOURS)")}
           </div>
         )}
         <div className="hint">
-          Бэкап проекта = архив файлов (compose, .env, код без .git/node_modules) + архив каждого именованного тома.
-          Для баз данных включайте «остановить на время бэкапа» или делайте дамп средствами СУБД.
+          {t("Бэкап проекта = архив файлов (compose, .env, код без .git/node_modules) + архив каждого именованного тома.")}
+          {t("Для баз данных включайте «остановить на время бэкапа» или делайте дамп средствами СУБД.")}
         </div>
       </div>
       {job && <JobPanel jobId={job.id} title={job.title} onClose={() => setJob(null)} onDone={list.reload} height={240} />}
       <div className="row">
-        <span className="muted">Тип:</span>
-        {[["", "все"], ["panel", "панель"], ["files", "файлы"], ["volume", "тома"]].map(([k, l]) => (
+        <span className="muted">{t("Тип:")}</span>
+        {[["", t("все")], ["panel", t("панель")], ["files", t("файлы")], ["volume", t("тома")]].map(([k, l]) => (
           <button key={k} className={`btn sm ${filter === k ? "primary" : ""}`} onClick={() => setFilter(k)}>{l}</button>
         ))}
       </div>
       <Loading error={list.error} loading={list.loading && !list.data} />
-      {list.data && !items.length && <div className="empty">Бэкапов нет</div>}
+      {list.data && !items.length && <div className="empty">{t("Бэкапов нет")}</div>}
       {!!items.length && (
         <table className="table">
-          <thead><tr><th>Тип</th><th>Объект</th><th>Файл</th><th>Размер</th><th>Статус</th><th>Когда</th><th /></tr></thead>
+          <thead><tr><th>{t("Тип")}</th><th>{t("Объект")}</th><th>{t("Файл")}</th><th>{t("Размер")}</th><th>{t("Статус")}</th><th>{t("Когда")}</th><th /></tr></thead>
           <tbody>
             {items.map((b: any) => (
               <tr key={b.id}>
@@ -74,11 +74,11 @@ export function BackupsPage() {
                   )}
                   {b.status === "success" && b.kind !== "panel" && (
                     <ActionButton className="btn sm" confirm={b.kind === "volume"
-                      ? `Восстановить том ${b.target} из этого архива? ТЕКУЩИЕ ДАННЫЕ ТОМА БУДУТ ЗАМЕНЕНЫ. Контейнеры проекта будут остановлены на время восстановления.`
-                      : `Восстановить файлы проекта из архива? Файлы с теми же именами будут перезаписаны.`}
-                      onClick={() => run(`Восстановление ${b.target}`)(api(`/backups/${b.id}/restore`, { method: "POST" }))}>↺ Восстановить</ActionButton>
+                      ? tf("Восстановить том {0} из этого архива? ТЕКУЩИЕ ДАННЫЕ ТОМА БУДУТ ЗАМЕНЕНЫ. Контейнеры проекта будут остановлены на время восстановления.", b.target)
+                      : t("Восстановить файлы проекта из архива? Файлы с теми же именами будут перезаписаны.")}
+                      onClick={() => run(tf("Восстановление {0}", b.target))(api(`/backups/${b.id}/restore`, { method: "POST" }))}>{t("↺ Восстановить")}</ActionButton>
                   )}
-                  <ActionButton className="btn sm danger" confirm={`Удалить ${b.filename}?`} onClick={async () => {
+                  <ActionButton className="btn sm danger" confirm={tf("Удалить {0}?", b.filename)} onClick={async () => {
                     await api(`/backups/${b.id}`, { method: "DELETE" });
                     list.reload();
                   }}>🗑</ActionButton>

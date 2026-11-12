@@ -137,3 +137,23 @@ def test_manual_rollback_endpoint(project, monkeypatch, client, auth):
     assert j.status == "success", j.output
     assert cf.read_text() == original
     assert _deployments(p["id"])[-1].kind == "rollback"
+
+
+def test_rollback_targets_last_successful_deploy_after_local_edit(project, monkeypatch):
+    """File edited in the panel *before* a deploy: rollback must return to the last good deploy."""
+    p, cf = project
+    monkeypatch.setattr(deploy.compose, "action_steps",
+                        lambda proj, action, service=None, no_cache=False: [("noop", [PY, "-c", "pass"])])
+    db = SessionLocal()
+    proj = db.get(Project, p["id"])
+    db.close()
+    steps, on_failure = deploy.deploy_steps(proj, "tester")
+    assert wait_job(_start(p["id"], steps, on_failure)).status == "success"
+    good = cf.read_text()
+
+    cf.write_text(good + "# BROKEN edited in panel\n")  # edited before deploying
+    steps, on_failure = deploy.deploy_steps(proj, "tester")
+    j = wait_job(_start(p["id"], steps, on_failure))
+    assert j.status == "failed" and "последнему успешному деплою" in j.output
+    assert cf.read_text() == good
+    assert _deployments(p["id"])[-1].status == "rolled_back"

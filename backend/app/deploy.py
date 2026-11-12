@@ -197,6 +197,27 @@ def apply_snapshot(ctx: JobContext, p: Project, snap: dict) -> bool:
     return rc == 0
 
 
+def rollback_target(project_id: int, current_dep_id: int) -> tuple[dict | None, str]:
+    """State to roll back to: what the last successful deploy left running (files edited in the
+    panel before a failed deploy are not a safe target); otherwise the snapshot taken before it."""
+    from sqlalchemy import select
+
+    db = SessionLocal()
+    try:
+        last_ok = db.scalar(select(Deployment).where(
+            Deployment.project_id == project_id, Deployment.id != current_dep_id,
+            Deployment.status == "success", Deployment.after_enc != "",
+        ).order_by(Deployment.id.desc()).limit(1))
+        if last_ok:
+            return json.loads(decrypt(last_ok.after_enc)), f"последнему успешному деплою #{last_ok.id}"
+        cur = db.get(Deployment, current_dep_id)
+        if cur and cur.before_enc:
+            return json.loads(decrypt(cur.before_enc)), "состоянию до деплоя"
+        return None, ""
+    finally:
+        db.close()
+
+
 # ---------- public ----------
 def deploy_steps(p: Project, username: str, no_cache: bool = False, kind: str = "deploy"):
     """Steps + failure handler for runner.start()."""
@@ -230,13 +251,11 @@ def deploy_steps(p: Project, username: str, no_cache: bool = False, kind: str = 
             _save(dep_id, status="failed", finished_at=utcnow())
             ctx.error("Автооткат выключен — проект оставлен как есть")
             return
-        db = SessionLocal()
-        d = db.get(Deployment, dep_id)
-        snap = json.loads(decrypt(d.before_enc)) if d and d.before_enc else None
-        db.close()
+        snap, source = rollback_target(p.id, dep_id)
         if not snap:
+            _save(dep_id, status="failed", finished_at=utcnow())
             return
-        ctx.emit("\n\x1b[33m↺ Автооткат к предыдущему состоянию\x1b[0m\n")
+        ctx.emit(f"\n\x1b[33m↺ Автооткат к {source}\x1b[0m\n")
         ok = apply_snapshot(ctx, p, snap) and wait_healthy(ctx, p, p.health_timeout or 90)
         _save(dep_id, status="rolled_back" if ok else "failed", finished_at=utcnow(),
               message="автооткат выполнен" if ok else "автооткат не удался")

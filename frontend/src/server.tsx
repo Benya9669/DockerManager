@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { useAuth } from "./auth";
@@ -50,9 +51,9 @@ export function ServerSelect() {
   if (!servers.length) return null;
   return (
     <label className="server-select">
-      <span className="muted small">Docker-хост</span>
+      <span className="muted small">{t("Docker-хост")}</span>
       <select value={serverId ?? ""} onChange={(e) => setServerId(e.target.value ? Number(e.target.value) : null)}>
-        <option value="">Локальный</option>
+        <option value="">{t("Локальный")}</option>
         {servers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
       </select>
     </label>
@@ -64,7 +65,7 @@ export function ServerPicker({ value, onChange }: { value: number | null; onChan
   const { servers } = useServer();
   return (
     <select value={value ?? ""} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}>
-      <option value="">Локальный (сервер панели)</option>
+      <option value="">{t("Локальный (сервер панели)")}</option>
       {servers.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.docker_host}</option>)}
     </select>
   );

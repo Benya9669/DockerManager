@@ -1,3 +1,4 @@
+import { useTheme } from "./ui";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
 import { json } from "@codemirror/lang-json";
@@ -16,7 +17,7 @@ export function Editor({
     <CodeMirror
       value={value}
       onChange={onChange}
-      theme="dark"
+      theme={useTheme()}
       height={height}
       readOnly={readOnly}
       extensions={langFor(filename)}

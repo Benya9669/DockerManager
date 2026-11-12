@@ -5,6 +5,10 @@ import { AuthProvider } from "./auth";
 import { App } from "./App";
 import { ServerProvider } from "./server";
 import "./styles.css";
+import { applyTheme } from "./i18n";
+
+applyTheme();
+document.documentElement.lang = localStorage.getItem("dm_lang") === "en" ? "en" : "ru";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -1,3 +1,4 @@
+import { t, tf } from "../i18n";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { JobPanel } from "../JobPanel";
@@ -8,20 +9,20 @@ export function JobsPage() {
   const jobs = useFetch<any[]>(() => api("/jobs?limit=200"), [], 5000);
   return (
     <div>
-      <div className="page-head"><h1>Задачи</h1></div>
+      <div className="page-head"><h1>{t("Задачи")}</h1></div>
       <Loading error={jobs.error} loading={jobs.loading && !jobs.data} />
       <table className="table">
-        <thead><tr><th>#</th><th>Проект</th><th>Действие</th><th>Статус</th><th>Кто</th><th>Начало</th><th>Длительность</th></tr></thead>
+        <thead><tr><th>#</th><th>{t("Проект")}</th><th>{t("Действие")}</th><th>{t("Статус")}</th><th>{t("Кто")}</th><th>{t("Начало")}</th><th>{t("Длительность")}</th></tr></thead>
         <tbody>
           {(jobs.data || []).map((j) => (
             <tr key={j.id} className="clickable" onClick={() => nav(`/jobs/${j.id}`)}>
               <td>{j.id}</td>
-              <td>{j.project_id ? <Link to={`/projects/${j.project_id}`} onClick={(e) => e.stopPropagation()}>{j.project_name}</Link> : <span className="muted">система</span>}</td>
+              <td>{j.project_id ? <Link to={`/projects/${j.project_id}`} onClick={(e) => e.stopPropagation()}>{j.project_name}</Link> : <span className="muted">{t("система")}</span>}</td>
               <td className="mono">{j.action}</td>
-              <td>{j.status === "running" ? <span className="badge yellow">выполняется</span> : <StateBadge state={j.status} />}</td>
+              <td>{j.status === "running" ? <span className="badge yellow">{t("выполняется")}</span> : <StateBadge state={j.status} />}</td>
               <td>{j.username}</td>
               <td className="small">{fmtDate(j.started_at)}</td>
-              <td className="small">{j.finished_at ? `${Math.round((new Date(j.finished_at).getTime() - new Date(j.started_at).getTime()) / 1000)} с` : "—"}</td>
+              <td className="small">{j.finished_at ? tf("{0} с", Math.round((new Date(j.finished_at).getTime() - new Date(j.started_at).getTime()) / 1000)) : "—"}</td>
             </tr>
           ))}
         </tbody>
@@ -39,7 +40,7 @@ export function JobPage() {
     <div>
       <div className="page-head">
         <div>
-          <div className="muted small"><Link to="/jobs">Задачи</Link> /</div>
+          <div className="muted small"><Link to="/jobs">{t("Задачи")}</Link> /</div>
           <h1>#{j.id} <span className="mono">{j.action}</span></h1>
           <div className="muted small">
             {j.project_id && <><Link to={`/projects/${j.project_id}`}>{j.project_name}</Link> · </>}

@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, wsUrl } from "./api";
@@ -13,17 +14,17 @@ export function JobPanel({ jobId, title, onClose, onDone, height = 360 }: {
     <div className="card job-panel">
       <div className="row between">
         <div className="row">
-          <b>{title || "Задача"}</b>
+          <b>{title || t("Задача")}</b>
           <Link to={`/jobs/${jobId}`} className="muted">#{jobId}</Link>
-          {status === "running" ? <span className="badge yellow">выполняется</span> : <StateBadge state={status} />}
+          {status === "running" ? <span className="badge yellow">{t("выполняется")}</span> : <StateBadge state={status} />}
         </div>
         <div className="row">
           {status === "running" && (
             <ActionButton className="btn danger sm" onClick={() => api(`/jobs/${jobId}/cancel`, { method: "POST" })}>
-              Отменить
+              {t("Отменить")}
             </ActionButton>
           )}
-          {onClose && <button className="btn ghost sm" onClick={onClose}>Закрыть</button>}
+          {onClose && <button className="btn ghost sm" onClick={onClose}>{t("Закрыть")}</button>}
         </div>
       </div>
       <XTerm

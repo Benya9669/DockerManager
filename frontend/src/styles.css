@@ -203,3 +203,34 @@ label.inline { display: flex; align-items: center; gap: 8px; }
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
 .server-select { display: flex; flex-direction: column; gap: 2px; padding: 0 10px 12px; }
 .server-select select { width: 100%; }
+
+/* ---------- light theme (terminals stay dark on purpose) ---------- */
+[data-theme="light"] {
+  --bg: #f4f5f7; --panel: #ffffff; --panel-2: #f0f2f5; --border: #d9dde4;
+  --text: #1c2330; --muted: #5f6b7d; --accent: #2563eb; --accent-2: #1d4ed8;
+  color-scheme: light;
+}
+[data-theme="light"] a { color: #1d4ed8; }
+[data-theme="light"] pre { background: #f6f8fa; }
+[data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea { background: #fff; }
+[data-theme="light"] .nav.active, [data-theme="light"] .side-item.active,
+[data-theme="light"] .seg-btn.active, [data-theme="light"] .template.active { background: #dbe7fd; color: #1c2330; }
+[data-theme="light"] .btn:hover:not(:disabled) { border-color: #b8c0cc; background: #e8ebf0; }
+[data-theme="light"] .btn.primary { color: #fff; }
+[data-theme="light"] .btn.primary:hover:not(:disabled) { background: #2563eb; }
+[data-theme="light"] .btn.danger, [data-theme="light"] .danger-text { color: #b42318; }
+[data-theme="light"] .btn.danger { border-color: #f1c4c0; }
+[data-theme="light"] .btn.danger:hover:not(:disabled) { background: #fdecea; }
+[data-theme="light"] .badge.green { color: #146c2e; border-color: #a6dcb5; background: #e8f6ec; }
+[data-theme="light"] .badge.red { color: #b42318; border-color: #f1c4c0; background: #fdecea; }
+[data-theme="light"] .badge.yellow { color: #8a5a00; border-color: #f0d58c; background: #fdf6e3; }
+[data-theme="light"] .chip.green { color: #146c2e; }
+[data-theme="light"] .chip.yellow { color: #8a5a00; }
+[data-theme="light"] .alert.err { background: #fdecea; border-color: #f1c4c0; color: #8c1d13; }
+[data-theme="light"] .danger-zone { border-color: #f1c4c0; }
+[data-theme="light"] .toast { box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+[data-theme="light"] .toast.err { color: #8c1d13; }
+[data-theme="light"] .template:hover { border-color: #b8c0cc; }
+[data-theme="light"] .modal-bg { background: rgba(15, 19, 26, .35); }
+.theme-row { display: flex; gap: 6px; }
+.theme-row .btn { flex: 1; justify-content: center; }

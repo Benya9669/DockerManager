@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useState } from "react";
 import { useAuth } from "../auth";
 
@@ -26,10 +27,10 @@ export function LoginPage() {
         }}
       >
         <h2>🐳 Docker Manager</h2>
-        <label>Логин<input autoFocus value={username} onChange={(e) => setU(e.target.value)} /></label>
-        <label>Пароль<input type="password" value={password} onChange={(e) => setP(e.target.value)} /></label>
+        <label>{t("Логин")}<input autoFocus value={username} onChange={(e) => setU(e.target.value)} /></label>
+        <label>{t("Пароль")}<input type="password" value={password} onChange={(e) => setP(e.target.value)} /></label>
         {err && <div className="alert err">{err}</div>}
-        <button className="btn primary full" disabled={busy}>{busy ? "Вход…" : "Войти"}</button>
+        <button className="btn primary full" disabled={busy}>{busy ? t("Вход…") : t("Войти")}</button>
       </form>
     </div>
   );

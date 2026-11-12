@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { useState } from "react";
 import { api } from "./api";
 import { toast, useFetch } from "./ui";
@@ -13,23 +14,23 @@ export function SshKeySelect({ value, onChange }: { value: string; onChange: (v:
     <div className="stack-sm">
       <div className="row">
         <select className="grow" value={value} onChange={(e) => onChange(e.target.value)}>
-          <option value="">по умолчанию (стандартные ключи и ~/.ssh/config)</option>
+          <option value="">{t("по умолчанию (стандартные ключи и ~/.ssh/config)")}</option>
           {list.map((k) => <option key={k.name} value={k.name}>{k.name}</option>)}
-          {value && !sel && <option value={value}>{value} (не найден)</option>}
+          {value && !sel && <option value={value}>{value} {t("(не найден)")}</option>}
         </select>
         {sel?.public_key && (
           <button type="button" className="btn sm" onClick={() => setShowPub(!showPub)}>
-            {showPub ? "скрыть" : "публичный ключ"}
+            {showPub ? t("скрыть") : t("публичный ключ")}
           </button>
         )}
       </div>
       {showPub && sel?.public_key && (
-        <pre className="small" title="Нажмите, чтобы скопировать" style={{ cursor: "pointer" }}
-          onClick={() => navigator.clipboard?.writeText(sel.public_key).then(() => toast("Скопировано"))}>
+        <pre className="small" title={t("Нажмите, чтобы скопировать")} style={{ cursor: "pointer" }}
+          onClick={() => navigator.clipboard?.writeText(sel.public_key).then(() => toast(t("Скопировано")))}>
           {sel.public_key}
         </pre>
       )}
-      {keys.data && !list.length && <div className="muted small">Ключей в {keys.data.dir} не найдено</div>}
+      {keys.data && !list.length && <div className="muted small">{t("Ключей в")} {keys.data.dir} {t("не найдено")}</div>}
     </div>
   );
 }

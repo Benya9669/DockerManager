@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, wsUrl } from "../api";
@@ -18,7 +19,7 @@ function ContainerActions({ c, onDone, sid }: { c: { id: string; state: string; 
       {c.state !== "running" && <ActionButton className="btn sm" onClick={act("start")} title="start">▶</ActionButton>}
       {c.state === "running" && <ActionButton className="btn sm" onClick={act("restart")} title="restart">⟳</ActionButton>}
       {c.state === "running" && <ActionButton className="btn sm" onClick={act("stop")} title="stop">⏸</ActionButton>}
-      <ActionButton className="btn sm danger" confirm="Удалить контейнер (force)?" onClick={act("remove")} title="remove">🗑</ActionButton>
+      <ActionButton className="btn sm danger" confirm={t("Удалить контейнер (force)?")} onClick={act("remove")} title="remove">🗑</ActionButton>
     </>
   );
 }
@@ -36,15 +37,15 @@ export function ContainersPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Контейнеры</h1>
+        <h1>{t("Контейнеры")}</h1>
         <div className="row">
-          <label className="check"><input type="checkbox" checked={onlyRunning} onChange={(e) => setOnlyRunning(e.target.checked)} />только запущенные</label>
-          <input placeholder="Фильтр…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <label className="check"><input type="checkbox" checked={onlyRunning} onChange={(e) => setOnlyRunning(e.target.checked)} />{t("только запущенные")}</label>
+          <input placeholder={t("Фильтр…")} value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
       <Loading error={list.error} loading={list.loading && !list.data} />
       <table className="table">
-        <thead><tr><th>Имя</th><th>Проект / сервис</th><th>Статус</th><th>Образ</th><th>Порты</th><th /></tr></thead>
+        <thead><tr><th>{t("Имя")}</th><th>{t("Проект / сервис")}</th><th>{t("Статус")}</th><th>{t("Образ")}</th><th>{t("Порты")}</th><th /></tr></thead>
         <tbody>
           {items.map((c) => (
             <tr key={c.id}>
@@ -86,10 +87,10 @@ export function ContainerPage() {
     <div>
       <div className="page-head">
         <div>
-          <div className="muted small"><Link to="/containers">Контейнеры</Link> /</div>
+          <div className="muted small"><Link to="/containers">{t("Контейнеры")}</Link> /</div>
           <h1>{c.Name?.replace(/^\//, "")} <StateBadge state={state} /></h1>
-          <div className="muted small mono">{c.Config?.Image} · {c.Id.slice(0, 12)} · создан {fmtDate(c.Created)}</div>
-          {labels["com.docker.compose.project"] && <div className="small">Проект: <b>{labels["com.docker.compose.project"]}</b> / {labels["com.docker.compose.service"]}</div>}
+          <div className="muted small mono">{c.Config?.Image} · {c.Id.slice(0, 12)} {t("· создан")} {fmtDate(c.Created)}</div>
+          {labels["com.docker.compose.project"] && <div className="small">{t("Проект:")} <b>{labels["com.docker.compose.project"]}</b> / {labels["com.docker.compose.service"]}</div>}
         </div>
         <div className="row">
           {stats.data && (
@@ -104,17 +105,17 @@ export function ContainerPage() {
       <Tabs
         active={tab}
         onChange={(t) => setSp({ tab: t, ...(sid != null ? { server: String(sid) } : {}) }, { replace: true })}
-        tabs={[["logs", "Логи"], ...(atLeast(c._my_role, "operator") ? ([["shell", "Терминал"]] as [string, string][]) : []), ["inspect", "Inspect"], ["env", "Env / mounts"]]}
+        tabs={[["logs", t("Логи")], ...(atLeast(c._my_role, "operator") ? ([["shell", t("Терминал")]] as [string, string][]) : []), ["inspect", "Inspect"], ["env", "Env / mounts"]]}
       />
       <div className="tab-body">
         {tab === "logs" && (
           <>
             <div className="row mb">
-              <span className="muted">Последние строки:</span>
+              <span className="muted">{t("Последние строки:")}</span>
               <select value={tail} onChange={(e) => setTail(e.target.value)}>
                 {["100", "500", "2000", "10000", "all"].map((t) => <option key={t}>{t}</option>)}
               </select>
-              <label className="check"><input type="checkbox" checked={ts} onChange={(e) => setTs(e.target.checked)} />время</label>
+              <label className="check"><input type="checkbox" checked={ts} onChange={(e) => setTs(e.target.checked)} />{t("время")}</label>
             </div>
             <XTerm url={wsUrl(`/docker/containers/${id}/logs`, { tail, timestamps: ts ? "1" : "0", ...sp0 })} mode="stream" height="65vh"
               download={{ path: withServer(`/docker/containers/${id}/logs/download?tail=${tail}&timestamps=${ts ? 1 : 0}`, sid), filename: `${c.Name?.replace(/^\//, "")}.log` }} />
@@ -124,30 +125,30 @@ export function ContainerPage() {
           state === "running" ? (
             <>
               <div className="row mb">
-                <input className="grow mono" placeholder="команда (по умолчанию bash или sh)" value={shell} onChange={(e) => setShell(e.target.value)} />
-                <button className="btn" onClick={() => setShellKey((k) => k + 1)}>Переподключить</button>
+                <input className="grow mono" placeholder={t("команда (по умолчанию bash или sh)")} value={shell} onChange={(e) => setShell(e.target.value)} />
+                <button className="btn" onClick={() => setShellKey((k) => k + 1)}>{t("Переподключить")}</button>
               </div>
               <XTerm key={shellKey} url={wsUrl(`/docker/containers/${id}/exec`, { ...(shell ? { cmd: shell } : {}), ...sp0 })} mode="exec" height="65vh" />
             </>
-          ) : <div className="empty">Контейнер не запущен</div>
+          ) : <div className="empty">{t("Контейнер не запущен")}</div>
         )}
         {tab === "inspect" && <Editor value={JSON.stringify(c, null, 2)} readOnly filename="inspect.json" height="70vh" />}
         {tab === "env" && (
           <div className="stack">
-            <h3>Переменные окружения</h3>
+            <h3>{t("Переменные окружения")}</h3>
             <pre className="small">{(c.Config?.Env || []).join("\n")}</pre>
-            <h3>Монтирования</h3>
+            <h3>{t("Монтирования")}</h3>
             <table className="table">
-              <thead><tr><th>Тип</th><th>Источник</th><th>Назначение</th><th>RW</th></tr></thead>
+              <thead><tr><th>{t("Тип")}</th><th>{t("Источник")}</th><th>{t("Назначение")}</th><th>RW</th></tr></thead>
               <tbody>
                 {(c.Mounts || []).map((m: any, i: number) => (
-                  <tr key={i}><td>{m.Type}</td><td className="mono small">{m.Name || m.Source}</td><td className="mono small">{m.Destination}</td><td>{m.RW ? "да" : "нет"}</td></tr>
+                  <tr key={i}><td>{m.Type}</td><td className="mono small">{m.Name || m.Source}</td><td className="mono small">{m.Destination}</td><td>{m.RW ? t("да") : t("нет")}</td></tr>
                 ))}
               </tbody>
             </table>
-            <h3>Сети</h3>
+            <h3>{t("Сети")}</h3>
             <pre className="small">{Object.entries(c.NetworkSettings?.Networks || {}).map(([n, v]: any) => `${n}: ${v.IPAddress || "-"}`).join("\n")}</pre>
-            <button className="btn ghost" onClick={() => nav(-1)}>Назад</button>
+            <button className="btn ghost" onClick={() => nav(-1)}>{t("Назад")}</button>
           </div>
         )}
       </div>

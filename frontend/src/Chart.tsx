@@ -1,7 +1,11 @@
+import { t, tf, LOCALE } from "./i18n";
+import { useTheme } from "./ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 // Categorical slots (dataviz reference palette, dark-surface steps), fixed order — never cycled.
 export const SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];
+// same hues, light-surface steps
+export const SERIES_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
 const MAX_SERIES = SERIES.length;
 
 export type Series = { name: string; points: [number, number][] }; // [unix ts, value]
@@ -9,8 +13,8 @@ export type Series = { name: string; points: [number, number][] }; // [unix ts, 
 const fmtTime = (ts: number, span: number) => {
   const d = new Date(ts * 1000);
   return span > 86400
-    ? d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-    : d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    ? d.toLocaleString(LOCALE, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
 };
 
 function niceMax(v: number) {
@@ -27,13 +31,14 @@ export function LineChart({ title, series, format, yMax, height = 180 }: {
   const wrap = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(600);
   const [hover, setHover] = useState<number | null>(null); // ts
+  const pal = useTheme() === "light" ? SERIES_LIGHT : SERIES;
   useEffect(() => {
     const ro = new ResizeObserver(([e]) => setW(Math.max(280, e.contentRect.width)));
     if (wrap.current) ro.observe(wrap.current);
     return () => ro.disconnect();
   }, []);
 
-  // keep the 8 largest series by average, fold the rest into "Прочие" (sum) — no generated 9th hue
+  // keep the 8 largest series by average, fold the rest into t("Прочие") (sum) — no generated 9th hue
   const shown = useMemo(() => {
     const valid = series.filter((s) => s.points.length);
     if (valid.length <= MAX_SERIES) return valid;
@@ -43,7 +48,7 @@ export function LineChart({ title, series, format, yMax, height = 180 }: {
     const rest = sorted.slice(MAX_SERIES - 1);
     const sum = new Map<number, number>();
     rest.forEach((s) => s.points.forEach(([t, v]) => sum.set(t, (sum.get(t) || 0) + v)));
-    return [...keep, { name: `Прочие (${rest.length})`, points: [...sum.entries()].sort((a, b) => a[0] - b[0]) as [number, number][] }];
+    return [...keep, { name: tf("Прочие ({0})", rest.length), points: [...sum.entries()].sort((a, b) => a[0] - b[0]) as [number, number][] }];
   }, [series]);
 
   const pad = { l: 64, r: 12, t: 8, b: 22 };
@@ -52,7 +57,7 @@ export function LineChart({ title, series, format, yMax, height = 180 }: {
     return (
       <div className="card chart">
         <div className="chart-title">{title}</div>
-        <div className="muted small pad">Нет данных — метрики собираются раз в несколько секунд, первые точки появятся скоро.</div>
+        <div className="muted small pad">{t("Нет данных — метрики собираются раз в несколько секунд, первые точки появятся скоро.")}</div>
       </div>
     );
   }
@@ -96,23 +101,23 @@ export function LineChart({ title, series, format, yMax, height = 180 }: {
             </text>
           ))}
           {shown.map((s, i) => (
-            <polyline key={s.name} fill="none" stroke={SERIES[i]} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"
+            <polyline key={s.name} fill="none" stroke={pal[i]} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"
               points={s.points.map(([t, v]) => `${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(" ")} />
           ))}
           {hover != null && (
             <>
               <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + ih} className="crosshair" />
               {hoverRows.map(({ s, i, p }) => (
-                <circle key={s.name} cx={x(p[0])} cy={y(p[1])} r={4} fill={SERIES[i]} stroke="var(--panel)" strokeWidth={2} />
+                <circle key={s.name} cx={x(p[0])} cy={y(p[1])} r={4} fill={pal[i]} stroke="var(--panel)" strokeWidth={2} />
               ))}
             </>
           )}
         </svg>
         {hover != null && hoverRows.length > 0 && (
           <div className="chart-tip" style={tipLeft ? { right: w - x(hover) + 10 } : { left: x(hover) + 10 }}>
-            <div className="muted small">{new Date(hoverRows[0].p[0] * 1000).toLocaleString("ru-RU")}</div>
+            <div className="muted small">{new Date(hoverRows[0].p[0] * 1000).toLocaleString(LOCALE)}</div>
             {hoverRows.map(({ s, i, p }) => (
-              <div key={s.name} className="tip-row"><span className="swatch" style={{ background: SERIES[i] }} />{s.name}<b>{format(p[1])}</b></div>
+              <div key={s.name} className="tip-row"><span className="swatch" style={{ background: pal[i] }} />{s.name}<b>{format(p[1])}</b></div>
             ))}
           </div>
         )}
@@ -121,7 +126,7 @@ export function LineChart({ title, series, format, yMax, height = 180 }: {
         <div className="legend">
           {shown.map((s, i) => (
             <span key={s.name} className="legend-item">
-              <span className="swatch" style={{ background: SERIES[i] }} />{s.name}
+              <span className="swatch" style={{ background: pal[i] }} />{s.name}
               <span className="muted">{format(s.points[s.points.length - 1][1])}</span>
             </span>
           ))}

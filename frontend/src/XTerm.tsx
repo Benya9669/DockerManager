@@ -1,3 +1,4 @@
+import { t, tf } from "./i18n";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -70,8 +71,8 @@ export function XTerm({ url, mode, onDone, height = 420, download }: {
         } else term.write(e.data);
       };
       ws.onclose = (e) => {
-        if (e.code === 4401) term.write("\r\n\x1b[31m[нет доступа]\x1b[0m\r\n");
-        else if (!finished) term.write("\r\n\x1b[90m[соединение закрыто]\x1b[0m\r\n");
+        if (e.code === 4401) term.write(`\r\n\x1b[31m[${t("нет доступа")}]\x1b[0m\r\n`);
+        else if (!finished) term.write(`\r\n\x1b[90m[${t("соединение закрыто")}]\x1b[0m\r\n`);
       };
       if (mode === "exec") {
         const sendSize = () => {
@@ -92,7 +93,7 @@ export function XTerm({ url, mode, onDone, height = 420, download }: {
         ws = s;
         wire(s);
       })
-      .catch((e) => term.write(`\r\n\x1b[31m[ошибка подключения: ${e.message || e}]\x1b[0m\r\n`));
+      .catch((e) => term.write(`\r\n\x1b[31m[${tf("ошибка подключения: {0}", e.message || e)}]\x1b[0m\r\n`));
 
     const ro = new ResizeObserver(() => {
       try {
@@ -124,7 +125,7 @@ export function XTerm({ url, mode, onDone, height = 420, download }: {
         <div className="row term-bar">
           <input
             className="grow"
-            placeholder="Поиск по выводу (Enter — следующее, Shift+Enter — предыдущее)"
+            placeholder={t("Поиск по выводу (Enter — следующее, Shift+Enter — предыдущее)")}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -135,13 +136,13 @@ export function XTerm({ url, mode, onDone, height = 420, download }: {
             }}
             onKeyDown={(e) => e.key === "Enter" && find(e.shiftKey ? "prev" : "next")}
           />
-          {query && <span className="muted small">{matches ? (matches.count ? `${matches.idx + 1} / ${matches.count}` : "не найдено") : ""}</span>}
-          <button className="btn sm" disabled={!query} onClick={() => find("prev")} title="предыдущее">↑</button>
-          <button className="btn sm" disabled={!query} onClick={() => find("next")} title="следующее">↓</button>
+          {query && <span className="muted small">{matches ? (matches.count ? `${matches.idx + 1} / ${matches.count}` : t("не найдено")) : ""}</span>}
+          <button className="btn sm" disabled={!query} onClick={() => find("prev")} title={t("предыдущее")}>↑</button>
+          <button className="btn sm" disabled={!query} onClick={() => find("next")} title={t("следующее")}>↓</button>
           {download && (
-            <button className="btn sm" title={query ? `скачать строки с «${query}»` : "скачать лог"}
+            <button className="btn sm" title={query ? tf("скачать строки с «{0}»", query) : t("скачать лог")}
               onClick={() => downloadFile(download.path + (query ? `${download.path.includes("?") ? "&" : "?"}grep=${encodeURIComponent(query)}` : ""), download.filename).catch(toastErr)}>
-              ⬇ {query ? "Найденное" : "Скачать"}
+              ⬇ {query ? t("Найденное") : t("Скачать")}
             </button>
           )}
         </div>

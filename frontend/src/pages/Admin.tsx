@@ -1,9 +1,10 @@
+import { t, tf } from "../i18n";
 import { useState } from "react";
 import { api, setToken } from "../api";
 import { useAuth } from "../auth";
 import { ActionButton, Loading, Modal, fmtDate, toast, toastErr, useFetch } from "../ui";
 
-const ROLES: [string, string][] = [["viewer", "наблюдатель"], ["operator", "оператор"], ["admin", "администратор"]];
+const ROLES: [string, string][] = [["viewer", t("наблюдатель")], ["operator", t("оператор")], ["admin", t("администратор")]];
 
 export function UsersPage() {
   const { user } = useAuth();
@@ -15,20 +16,20 @@ export function UsersPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Пользователи</h1>
-        <button className="btn primary" onClick={() => setShow(true)}>+ Пользователь</button>
+        <h1>{t("Пользователи")}</h1>
+        <button className="btn primary" onClick={() => setShow(true)}>{t("+ Пользователь")}</button>
       </div>
       <div className="hint mb">
-        <b>Наблюдатель</b> — просмотр проектов, контейнеров и логов. <b>Оператор</b> — деплой, build, env, файлы, git, терминал.
-        <b> Администратор</b> — плюс проекты, настройки, очистка, пользователи и аудит.
+        <b>{t("Наблюдатель")}</b> {t("— просмотр проектов, контейнеров и логов.")} <b>{t("Оператор")}</b> {t("— деплой, build, env, файлы, git, терминал.")}
+        <b> {t("Администратор")}</b> {t("— плюс проекты, настройки, очистка, пользователи и аудит.")}
       </div>
       <Loading error={list.error} loading={list.loading && !list.data} />
       <table className="table">
-        <thead><tr><th>Логин</th><th>Роль</th><th>Активен</th><th>Создан</th><th /></tr></thead>
+        <thead><tr><th>{t("Логин")}</th><th>{t("Роль")}</th><th>{t("Активен")}</th><th>{t("Создан")}</th><th /></tr></thead>
         <tbody>
           {(list.data || []).map((u) => (
             <tr key={u.id}>
-              <td><b>{u.username}</b>{u.id === user?.id && <span className="muted"> (вы)</span>}</td>
+              <td><b>{u.username}</b>{u.id === user?.id && <span className="muted"> {t("(вы)")}</span>}</td>
               <td>
                 <select value={u.role} disabled={u.id === user?.id} onChange={async (e) => {
                   try {
@@ -49,15 +50,15 @@ export function UsersPage() {
               </td>
               <td className="small">{fmtDate(u.created_at)}</td>
               <td className="actions">
-                {u.role !== "admin" && <button className="btn sm" onClick={() => setAccessFor(u)}>Доступ к проектам</button>}
+                {u.role !== "admin" && <button className="btn sm" onClick={() => setAccessFor(u)}>{t("Доступ к проектам")}</button>}
                 <ActionButton className="btn sm" onClick={async () => {
-                  const p = prompt(`Новый пароль для ${u.username} (мин. 8 символов)`);
+                  const p = prompt(tf("Новый пароль для {0} (мин. 8 символов)", u.username));
                   if (!p) return;
                   await api(`/users/${u.id}`, { method: "PATCH", body: { password: p } });
-                  toast("Пароль изменён");
-                }}>Пароль</ActionButton>
+                  toast(t("Пароль изменён"));
+                }}>{t("Пароль")}</ActionButton>
                 {u.id !== user?.id && (
-                  <ActionButton className="btn sm danger" confirm={`Удалить ${u.username}?`} onClick={async () => {
+                  <ActionButton className="btn sm danger" confirm={tf("Удалить {0}?", u.username)} onClick={async () => {
                     await api(`/users/${u.id}`, { method: "DELETE" });
                     list.reload();
                   }}>🗑</ActionButton>
@@ -69,7 +70,7 @@ export function UsersPage() {
       </table>
       {accessFor && <AccessModal user={accessFor} onClose={() => setAccessFor(null)} />}
       {show && (
-        <Modal title="Новый пользователь" onClose={() => setShow(false)}>
+        <Modal title={t("Новый пользователь")} onClose={() => setShow(false)}>
           <form className="form" onSubmit={async (e) => {
             e.preventDefault();
             try {
@@ -79,14 +80,14 @@ export function UsersPage() {
               list.reload();
             } catch (err) { toastErr(err); }
           }}>
-            <label>Логин<input required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></label>
-            <label>Пароль (мин. 8)<input required type="password" minLength={8} value={f.password} autoComplete="new-password" onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
-            <label>Роль
+            <label>{t("Логин")}<input required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></label>
+            <label>{t("Пароль (мин. 8)")}<input required type="password" minLength={8} value={f.password} autoComplete="new-password" onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
+            <label>{t("Роль")}
               <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
                 {ROLES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
             </label>
-            <div className="row end"><button className="btn primary">Создать</button></div>
+            <div className="row end"><button className="btn primary">{t("Создать")}</button></div>
           </form>
         </Modal>
       )}
@@ -94,7 +95,7 @@ export function UsersPage() {
   );
 }
 
-const ROLE_RU: Record<string, string> = { viewer: "наблюдатель", operator: "оператор", admin: "администратор" };
+const ROLE_RU: Record<string, string> = { viewer: t("наблюдатель"), operator: t("оператор"), admin: t("администратор") };
 
 function AccessModal({ user, onClose }: { user: any; onClose: () => void }) {
   const acc = useFetch<any>(() => api(`/users/${user.id}/access`), [user.id]);
@@ -107,26 +108,25 @@ function AccessModal({ user, onClose }: { user: any; onClose: () => void }) {
     }
   };
   return (
-    <Modal title={`Доступ к проектам: ${user.username}`} onClose={onClose} wide>
+    <Modal title={tf("Доступ к проектам: {0}", user.username)} onClose={onClose} wide>
       <div className="stack">
         <div className="hint">
-          Глобальная роль: <b>{ROLE_RU[user.role]}</b> — действует во всех проектах, где не задано иное.
-          Для отдельных проектов можно скрыть проект или дать больше прав (например, оператор только в одном проекте).
+          {t("Глобальная роль:")} <b>{ROLE_RU[user.role]}</b> {t("— действует во всех проектах, где не задано иное. Для отдельных проектов можно скрыть проект или дать больше прав (например, оператор только в одном проекте).")}
         </div>
         <Loading error={acc.error} loading={acc.loading && !acc.data} />
         {acc.data && (
           <table className="table">
-            <thead><tr><th>Проект</th><th>Роль в проекте</th></tr></thead>
+            <thead><tr><th>{t("Проект")}</th><th>{t("Роль в проекте")}</th></tr></thead>
             <tbody>
               {acc.data.projects.map((p: any) => (
                 <tr key={p.project_id}>
                   <td>{p.name} <span className="muted small">{p.slug}</span></td>
                   <td>
                     <select value={p.role || ""} onChange={(e) => set(p.project_id, e.target.value)}>
-                      <option value="">по умолчанию ({ROLE_RU[acc.data.global_role]})</option>
-                      <option value="none">нет доступа (проект скрыт)</option>
-                      <option value="viewer">наблюдатель</option>
-                      <option value="operator">оператор</option>
+                      <option value="">{t("по умолчанию (")}{ROLE_RU[acc.data.global_role]})</option>
+                      <option value="none">{t("нет доступа (проект скрыт)")}</option>
+                      <option value="viewer">{t("наблюдатель")}</option>
+                      <option value="operator">{t("оператор")}</option>
                     </select>
                   </td>
                 </tr>
@@ -146,12 +146,12 @@ export function AuditPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Аудит</h1>
-        <input placeholder="Фильтр…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <h1>{t("Аудит")}</h1>
+        <input placeholder={t("Фильтр…")} value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <Loading error={list.error} loading={list.loading && !list.data} />
       <table className="table">
-        <thead><tr><th>Время</th><th>Пользователь</th><th>IP</th><th>Действие</th><th>Объект</th><th>Детали</th></tr></thead>
+        <thead><tr><th>{t("Время")}</th><th>{t("Пользователь")}</th><th>IP</th><th>{t("Действие")}</th><th>{t("Объект")}</th><th>{t("Детали")}</th></tr></thead>
         <tbody>
           {items.map((r) => (
             <tr key={r.id}>
@@ -171,20 +171,20 @@ export function AccountPage() {
   const [f, setF] = useState({ current_password: "", new_password: "" });
   return (
     <div>
-      <div className="page-head"><h1>Аккаунт: {user?.username}</h1></div>
+      <div className="page-head"><h1>{t("Аккаунт:")} {user?.username}</h1></div>
       <form className="card form narrow" onSubmit={async (e) => {
         e.preventDefault();
         try {
           const r = await api("/auth/password", { body: f });
           if (r.token) setToken(r.token); // other sessions are logged out, keep this one
-          toast("Пароль изменён, остальные сессии завершены");
+          toast(t("Пароль изменён, остальные сессии завершены"));
           setF({ current_password: "", new_password: "" });
         } catch (err) { toastErr(err); }
       }}>
-        <h3>Смена пароля</h3>
-        <label>Текущий пароль<input type="password" required value={f.current_password} onChange={(e) => setF({ ...f, current_password: e.target.value })} /></label>
-        <label>Новый пароль (мин. 8)<input type="password" required minLength={8} autoComplete="new-password" value={f.new_password} onChange={(e) => setF({ ...f, new_password: e.target.value })} /></label>
-        <div className="row end"><button className="btn primary">Сохранить</button></div>
+        <h3>{t("Смена пароля")}</h3>
+        <label>{t("Текущий пароль")}<input type="password" required value={f.current_password} onChange={(e) => setF({ ...f, current_password: e.target.value })} /></label>
+        <label>{t("Новый пароль (мин. 8)")}<input type="password" required minLength={8} autoComplete="new-password" value={f.new_password} onChange={(e) => setF({ ...f, new_password: e.target.value })} /></label>
+        <div className="row end"><button className="btn primary">{t("Сохранить")}</button></div>
       </form>
     </div>
   );
@@ -198,19 +198,18 @@ export function RegistriesPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Реестры образов</h1>
-        <button className="btn primary" onClick={() => setShow(true)}>+ Реестр</button>
+        <h1>{t("Реестры образов")}</h1>
+        <button className="btn primary" onClick={() => setShow(true)}>{t("+ Реестр")}</button>
       </div>
       <div className="hint mb">
-        Логины к приватным registry. Используются во всех операциях панели: <b>pull</b>, <b>деплой</b>, <b>up</b>, Pull на странице образов
-        и самообновление в режиме image. Пароли хранятся зашифрованными.<br />
-        <b>GHCR:</b> адрес <span className="mono">ghcr.io</span>, логин — ваш GitHub-логин, пароль — Personal Access Token (classic) с правом <span className="mono">read:packages</span>.
+        {t("Логины к приватным registry. Используются во всех операциях панели:")} <b>pull</b>, <b>{t("деплой")}</b>, <b>up</b>{t(", Pull на странице образов и самообновление в режиме image. Пароли хранятся зашифрованными.")}<br />
+        <b>GHCR:</b> {t("адрес")} <span className="mono">ghcr.io</span>{t(", логин — ваш GitHub-логин, пароль — Personal Access Token (classic) с правом")} <span className="mono">read:packages</span>.
       </div>
       <Loading error={list.error} loading={list.loading && !list.data} />
-      {list.data && !list.data.length && <div className="empty">Реестров нет — используются только публичные образы</div>}
+      {list.data && !list.data.length && <div className="empty">{t("Реестров нет — используются только публичные образы")}</div>}
       {!!list.data?.length && (
         <table className="table">
-          <thead><tr><th>Реестр</th><th>Логин</th><th>Добавлен</th><th /></tr></thead>
+          <thead><tr><th>{t("Реестр")}</th><th>{t("Логин")}</th><th>{t("Добавлен")}</th><th /></tr></thead>
           <tbody>
             {list.data.map((r) => (
               <tr key={r.id}>
@@ -219,12 +218,12 @@ export function RegistriesPage() {
                 <td className="small">{fmtDate(r.created_at)}</td>
                 <td className="actions">
                   <ActionButton className="btn sm" onClick={async () => {
-                    const p = prompt(`Новый токен/пароль для ${r.url}`);
+                    const p = prompt(tf("Новый токен/пароль для {0}", r.url));
                     if (!p) return;
                     await api(`/registries/${r.id}`, { method: "PATCH", body: { password: p } });
-                    toast("Обновлено, вход проверен");
-                  }}>Сменить токен</ActionButton>
-                  <ActionButton className="btn sm danger" confirm={`Удалить логин к ${r.url}?`} onClick={async () => {
+                    toast(t("Обновлено, вход проверен"));
+                  }}>{t("Сменить токен")}</ActionButton>
+                  <ActionButton className="btn sm danger" confirm={tf("Удалить логин к {0}?", r.url)} onClick={async () => {
                     await api(`/registries/${r.id}`, { method: "DELETE" });
                     list.reload();
                   }}>🗑</ActionButton>
@@ -235,22 +234,22 @@ export function RegistriesPage() {
         </table>
       )}
       {show && (
-        <Modal title="Новый реестр" onClose={() => setShow(false)}>
+        <Modal title={t("Новый реестр")} onClose={() => setShow(false)}>
           <form className="form" onSubmit={async (e) => {
             e.preventDefault();
             try {
               await api("/registries", { body: f });
-              toast("Реестр добавлен");
+              toast(t("Реестр добавлен"));
               setShow(false);
               setF({ url: "ghcr.io", username: "", password: "", verify: true });
               list.reload();
             } catch (err) { toastErr(err); }
           }}>
-            <label>Адрес реестра<input required value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="ghcr.io, registry.gitlab.com, harbor.company.ru" /></label>
-            <label>Логин<input required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></label>
-            <label>Токен / пароль<input required type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
-            <label className="check"><input type="checkbox" checked={f.verify} onChange={(e) => setF({ ...f, verify: e.target.checked })} />проверить вход (docker login)</label>
-            <div className="row end"><button className="btn primary">Добавить</button></div>
+            <label>{t("Адрес реестра")}<input required value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="ghcr.io, registry.gitlab.com, harbor.company.ru" /></label>
+            <label>{t("Логин")}<input required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></label>
+            <label>{t("Токен / пароль")}<input required type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
+            <label className="check"><input type="checkbox" checked={f.verify} onChange={(e) => setF({ ...f, verify: e.target.checked })} />{t("проверить вход (docker login)")}</label>
+            <div className="row end"><button className="btn primary">{t("Добавить")}</button></div>
           </form>
         </Modal>
       )}

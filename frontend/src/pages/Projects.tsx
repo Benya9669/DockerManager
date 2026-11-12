@@ -1,3 +1,4 @@
+import { t, tf } from "../i18n";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -17,26 +18,26 @@ export function ProjectsPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Проекты</h1>
+        <h1>{t("Проекты")}</h1>
         <div className="row">
-          <input placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
-          {can("admin") && <button className="btn" onClick={() => setShowImport(true)}>⤓ Импорт запущенных стеков</button>}
-          {can("admin") && <button className="btn primary" onClick={() => setShowNew(true)}>+ Новый проект</button>}
+          <input placeholder={t("Поиск…")} value={q} onChange={(e) => setQ(e.target.value)} />
+          {can("admin") && <button className="btn" onClick={() => setShowImport(true)}>{t("⤓ Импорт запущенных стеков")}</button>}
+          {can("admin") && <button className="btn primary" onClick={() => setShowNew(true)}>{t("+ Новый проект")}</button>}
         </div>
       </div>
       <Loading error={error} loading={loading && !data} />
-      {data && !list.length && <div className="empty">Проектов пока нет.{can("admin") && " Создайте первый — из git-репозитория, существующей папки или с нуля."}</div>}
+      {data && !list.length && <div className="empty">{t("Проектов пока нет.")}{can("admin") && t(" Создайте первый — из git-репозитория, существующей папки или с нуля.")}</div>}
       <div className="grid">
         {list.map((p) => (
           <Link key={p.id} to={`/projects/${p.id}`} className="card project-card">
             <div className="row between">
               <h3>{p.name}</h3>
-              {p.busy && <span className="badge yellow">задача…</span>}
+              {p.busy && <span className="badge yellow">{t("задача…")}</span>}
             </div>
             <div className="muted small">{p.slug}</div>
             {p.description && <p className="desc">{p.description}</p>}
             <div className="row wrap small">
-              <span className="chip">{p.source === "git" ? `⎇ ${p.branch || "git"}` : "📁 локальный"}</span>
+              <span className="chip">{p.source === "git" ? `⎇ ${p.branch || "git"}` : t("📁 локальный")}</span>
               {p.server_name && <span className="chip">🖥 {p.server_name}</span>}
               {p.env_file && <span className="chip">env: {p.env_file}</span>}
               <span className={`chip ${p.containers_running ? "green" : ""}`}>
@@ -66,7 +67,7 @@ function TemplatePicker({ value, onChange }: { value: string; onChange: (id: str
           </button>
         ))}
       </div>
-      {!value && <div className="muted small">Выберите шаблон. Пароли в .env сгенерируются автоматически.</div>}
+      {!value && <div className="muted small">{t("Выберите шаблон. Пароли в .env сгенерируются автоматически.")}</div>}
     </div>
   );
 }
@@ -81,36 +82,34 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   const doImport = async (slug: string) => {
     const s = items.find((x) => x.slug === slug);
     await api("/projects/import", { body: { slug, ssh_key: s?.git_repo_url ? sshKey : "" } });
-    toast(`Импортирован: ${slug}`);
+    toast(tf("Импортирован: {0}", slug));
   };
 
   return (
-    <Modal title="Импорт запущенных compose-стеков" onClose={onClose} wide>
+    <Modal title={t("Импорт запущенных compose-стеков")} onClose={onClose} wide>
       <div className="stack">
         <div className="hint">
-          Стеки найдены по меткам контейнеров на хосте. При импорте имя compose-проекта, папка, compose-файлы и env-файл
-          берутся такими же, как при исходном запуске, поэтому панель управляет теми же контейнерами и не создаёт дубликаты.
-          Контейнеры при импорте не перезапускаются.
+          {t("Стеки найдены по меткам контейнеров на хосте. При импорте имя compose-проекта, папка, compose-файлы и env-файл берутся такими же, как при исходном запуске, поэтому панель управляет теми же контейнерами и не создаёт дубликаты. Контейнеры при импорте не перезапускаются.")}
         </div>
         <label className="form">
-          <span className="muted small">SSH-ключ для импортируемых git-проектов (можно поменять потом в настройках проекта)</span>
+          <span className="muted small">{t("SSH-ключ для импортируемых git-проектов (можно поменять потом в настройках проекта)")}</span>
           <SshKeySelect value={sshKey} onChange={setSshKey} />
         </label>
         <div className="row between">
-          <label className="check"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />показать уже добавленные</label>
+          <label className="check"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />{t("показать уже добавленные")}</label>
           <ActionButton className="btn primary" disabled={!importable.length} onClick={async () => {
             for (const s of importable) {
               try { await doImport(s.slug); } catch (e) { toastErr(e); }
             }
             list.reload();
             onImported();
-          }}>Импортировать все ({importable.length})</ActionButton>
+          }}>{t("Импортировать все (")}{importable.length})</ActionButton>
         </div>
         <Loading error={list.error} loading={list.loading && !list.data} />
-        {list.data && !items.length && <div className="empty">Новых compose-стеков не найдено</div>}
+        {list.data && !items.length && <div className="empty">{t("Новых compose-стеков не найдено")}</div>}
         {items.length > 0 && (
           <table className="table">
-            <thead><tr><th>Проект</th><th>Папка / файлы</th><th>Сервисы</th><th>Git</th><th /></tr></thead>
+            <thead><tr><th>{t("Проект")}</th><th>{t("Папка / файлы")}</th><th>{t("Сервисы")}</th><th>Git</th><th /></tr></thead>
             <tbody>
               {items.map((s) => (
                 <tr key={s.slug}>
@@ -118,17 +117,17 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
                   <td className="small">
                     <div className="mono">{s.working_dir || "—"}</div>
                     <div className="muted mono">{s.compose_files}{s.env_file && ` · env: ${s.env_file}`}</div>
-                    {!s.accessible && <div className="danger-text">папка недоступна панели — смонтируйте её по тому же пути</div>}
+                    {!s.accessible && <div className="danger-text">{t("папка недоступна панели — смонтируйте её по тому же пути")}</div>}
                   </td>
                   <td className="small">{s.services.join(", ")}</td>
                   <td className="small">{s.git_repo_url ? <><div className="mono">{s.git_repo_url}</div><div className="muted">⎇ {s.git_branch}</div></> : <span className="muted">—</span>}</td>
                   <td className="actions">
-                    {s.registered ? <span className="badge green">уже в панели</span> : (
+                    {s.registered ? <span className="badge green">{t("уже в панели")}</span> : (
                       <ActionButton className="btn sm primary" disabled={!s.accessible} onClick={async () => {
                         await doImport(s.slug);
                         list.reload();
                         onImported();
-                      }}>Импорт</ActionButton>
+                      }}>{t("Импорт")}</ActionButton>
                     )}
                   </td>
                 </tr>
@@ -168,52 +167,52 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
   };
 
   return (
-    <Modal title="Новый проект" onClose={onClose}>
+    <Modal title={t("Новый проект")} onClose={onClose}>
       <form onSubmit={submit} className="form">
         <div className="seg">
-          {[["git", "Git-репозиторий"], ["template", "Из шаблона"], ["local", "Папка на сервере"], ["empty", "С нуля"]].map(([k, l]) => (
+          {[["git", t("Git-репозиторий")], ["template", t("Из шаблона")], ["local", t("Папка на сервере")], ["empty", t("С нуля")]].map(([k, l]) => (
             <button type="button" key={k} className={`seg-btn ${f.source === k ? "active" : ""}`} onClick={() => setF({ ...f, source: k })}>
               {l}
             </button>
           ))}
         </div>
-        <label>Название *<input required value={f.name} onChange={set("name")} /></label>
+        <label>{t("Название *")}<input required value={f.name} onChange={set("name")} /></label>
         <label>
-          Slug (имя compose-проекта)
-          <input value={f.slug} onChange={set("slug")} placeholder="сгенерируется из названия" pattern="[a-z0-9][a-z0-9_-]*" />
+          {t("Slug (имя compose-проекта)")}
+          <input value={f.slug} onChange={set("slug")} placeholder={t("сгенерируется из названия")} pattern="[a-z0-9][a-z0-9_-]*" />
         </label>
-        <label>Описание<input value={f.description} onChange={set("description")} /></label>
+        <label>{t("Описание")}<input value={f.description} onChange={set("description")} /></label>
         {f.source === "git" && (
           <>
-            <label>URL репозитория *<input required value={f.repo_url} onChange={set("repo_url")} placeholder="https://gitlab.company.ru/team/app.git или git@…" /></label>
+            <label>{t("URL репозитория *")}<input required value={f.repo_url} onChange={set("repo_url")} placeholder={t("https://gitlab.company.ru/team/app.git или git@…")} /></label>
             <div className="cols">
-              <label>Ветка<input value={f.branch} onChange={set("branch")} placeholder="по умолчанию" /></label>
-              <label>Git-пользователь<input value={f.git_username} onChange={set("git_username")} placeholder="oauth2" /></label>
+              <label>{t("Ветка")}<input value={f.branch} onChange={set("branch")} placeholder={t("по умолчанию")} /></label>
+              <label>{t("Git-пользователь")}<input value={f.git_username} onChange={set("git_username")} placeholder="oauth2" /></label>
             </div>
             <label>
-              Токен доступа (для HTTPS)
-              <input type="password" value={f.git_token} onChange={set("git_token")} placeholder="хранится зашифрованным" autoComplete="new-password" />
+              {t("Токен доступа (для HTTPS)")}
+              <input type="password" value={f.git_token} onChange={set("git_token")} placeholder={t("хранится зашифрованным")} autoComplete="new-password" />
             </label>
             <label>
-              SSH-ключ (для git@… URL)
+              {t("SSH-ключ (для git@… URL)")}
               <SshKeySelect value={f.ssh_key} onChange={(v) => setF({ ...f, ssh_key: v })} />
             </label>
           </>
         )}
         {f.source === "template" && <TemplatePicker value={f.template} onChange={(t) => setF({ ...f, template: t })} />}
         {f.source === "local" && (
-          <label>Путь к папке на сервере *<input required value={f.path} onChange={set("path")} placeholder="/opt/apps/myapp" /></label>
+          <label>{t("Путь к папке на сервере *")}<input required value={f.path} onChange={set("path")} placeholder="/opt/apps/myapp" /></label>
         )}
         {servers.length > 0 && (
-          <label>Где запускать<ServerPicker value={f.server_id} onChange={(v) => setF({ ...f, server_id: v })} /></label>
+          <label>{t("Где запускать")}<ServerPicker value={f.server_id} onChange={(v) => setF({ ...f, server_id: v })} /></label>
         )}
         <div className="cols">
-          <label>Compose-файлы (через запятую)<input value={f.compose_files} onChange={set("compose_files")} /></label>
-          <label>Активный .env<input value={f.env_file} onChange={set("env_file")} placeholder="можно выбрать позже" /></label>
+          <label>{t("Compose-файлы (через запятую)")}<input value={f.compose_files} onChange={set("compose_files")} /></label>
+          <label>{t("Активный .env")}<input value={f.env_file} onChange={set("env_file")} placeholder={t("можно выбрать позже")} /></label>
         </div>
         <div className="row end">
-          <button type="button" className="btn ghost" onClick={onClose}>Отмена</button>
-          <button className="btn primary" disabled={busy}>{busy ? "Создание…" : "Создать"}</button>
+          <button type="button" className="btn ghost" onClick={onClose}>{t("Отмена")}</button>
+          <button className="btn primary" disabled={busy}>{busy ? t("Создание…") : t("Создать")}</button>
         </div>
       </form>
     </Modal>

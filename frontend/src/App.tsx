@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { LANG, getTheme, setLang, setTheme, t, type Theme } from "./i18n";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
 import { ToastHost } from "./ui";
@@ -15,7 +17,7 @@ import { ServersPage } from "./pages/Servers";
 import { ServerSelect } from "./server";
 import { useFetch } from "./ui";
 
-const ROLE_RU = { admin: "администратор", operator: "оператор", viewer: "наблюдатель" } as const;
+const ROLE_RU = { admin: t("администратор"), operator: t("оператор"), viewer: t("наблюдатель") } as const;
 
 export function App() {
   const { user, ready, logout, can } = useAuth();
@@ -32,18 +34,18 @@ export function App() {
     );
 
   const nav: [string, string, boolean][] = [
-    ["/", "📦 Проекты", true],
-    ["/containers", "🧩 Контейнеры", true],
-    ["/images", "💿 Образы", true],
-    ["/volumes", "🗄 Тома", true],
-    ["/networks", "🔗 Сети", true],
-    ["/jobs", "⚙️ Задачи", true],
-    ["/system", "🧹 Система и очистка", true],
-    ["/servers", "🖥 Серверы", can("admin")],
-    ["/backups", "💾 Бэкапы", can("admin")],
-    ["/registries", "🔐 Реестры", can("admin")],
-    ["/users", "👥 Пользователи", can("admin")],
-    ["/audit", "📜 Аудит", can("admin")],
+    ["/", t("📦 Проекты"), true],
+    ["/containers", t("🧩 Контейнеры"), true],
+    ["/images", t("💿 Образы"), true],
+    ["/volumes", t("🗄 Тома"), true],
+    ["/networks", t("🔗 Сети"), true],
+    ["/jobs", t("⚙️ Задачи"), true],
+    ["/system", t("🧹 Система и очистка"), true],
+    ["/servers", t("🖥 Серверы"), can("admin")],
+    ["/backups", t("💾 Бэкапы"), can("admin")],
+    ["/registries", t("🔐 Реестры"), can("admin")],
+    ["/users", t("👥 Пользователи"), can("admin")],
+    ["/audit", t("📜 Аудит"), can("admin")],
   ];
 
   return (
@@ -63,7 +65,8 @@ export function App() {
             👤 {user.username}
             <div className="muted small">{ROLE_RU[user.role]}</div>
           </NavLink>
-          <button className="btn ghost full" onClick={logout}>Выйти</button>
+          <button className="btn ghost full" onClick={logout}>{t("Выйти")}</button>
+          <Prefs />
           {ver.data && (
             <div className="muted small center" title={ver.data.git_sha}>
               v{ver.data.version}{ver.data.git_sha && ` · ${ver.data.git_sha.slice(0, 7)}`}
@@ -90,10 +93,25 @@ export function App() {
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/login" element={<Navigate to="/" />} />
-          <Route path="*" element={<div className="pad">Страница не найдена</div>} />
+          <Route path="*" element={<div className="pad">{t("Страница не найдена")}</div>} />
         </Routes>
       </main>
       <ToastHost />
+    </div>
+  );
+}
+
+/** Theme + language switches in the sidebar footer. */
+function Prefs() {
+  const [theme, setThemeState] = useState<Theme>(getTheme());
+  return (
+    <div className="theme-row">
+      <button className="btn sm" title={theme === "dark" ? "Light theme" : "Dark theme"}
+        onClick={() => { const n = theme === "dark" ? "light" : "dark"; setTheme(n); setThemeState(n); }}>
+        {theme === "dark" ? "☀" : "☾"}
+      </button>
+      <button className={`btn sm ${LANG === "ru" ? "primary" : ""}`} onClick={() => LANG !== "ru" && setLang("ru")}>RU</button>
+      <button className={`btn sm ${LANG === "en" ? "primary" : ""}`} onClick={() => LANG !== "en" && setLang("en")}>EN</button>
     </div>
   );
 }
