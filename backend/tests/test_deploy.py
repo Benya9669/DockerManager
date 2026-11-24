@@ -98,7 +98,9 @@ def test_failed_deploy_auto_rollback_restores_files(project, monkeypatch):
     assert j.status == "failed"
     assert "Автооткат" in j.output
     assert cf.read_text() == original  # file restored
-    assert _deployments(p["id"])[-1].status == "rolled_back"
+    deployment = _deployments(p["id"])[-1]
+    assert deployment.status == "rolled_back"
+    assert "web-1" in decrypt(deployment.diagnostics_enc)
 
 
 def test_no_rollback_when_disabled(project, monkeypatch, client, auth):

@@ -121,6 +121,7 @@ class JobRunner:
         ctx = JobContext(self, live, cwd, full_env)
         try:
             for label, step in steps:
+                ctx.data["step"] = label
                 if live.cancelled:
                     status = "cancelled"
                     break

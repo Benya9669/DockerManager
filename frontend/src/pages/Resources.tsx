@@ -74,7 +74,8 @@ export function ImagesPage() {
 
 export function VolumesPage() {
   const { can } = useAuth();
-  const { serverId } = useServer();
+  const { serverId, servers } = useServer();
+  const projects = useFetch<any[]>(() => api("/projects"), []);
   const list = useFetch<any[]>(() => api(withServer("/docker/volumes", serverId)), [serverId], 15000);
   return (
     <div>
@@ -92,7 +93,7 @@ export function VolumesPage() {
               <td>{v.in_use ? <span className="badge green">{t("используется")}</span> : <span className="badge gray">{t("свободен")}</span>}</td>
               <td className="actions">
                 {can("admin") && !v.in_use && (
-                  <ActionButton className="btn sm danger" confirm={tf("Удалить том {0}? ДАННЫЕ БУДУТ ПОТЕРЯНЫ.", v.name)} onClick={async () => {
+                  <ActionButton className="btn sm danger" confirm={[v.project, projects.data?.find(p => p.slug === v.project && p.server_id === serverId)?.environment, servers.find(s => s.id === serverId)?.name || t("Локальный"), tf("Удалить том {0}? ДАННЫЕ БУДУТ ПОТЕРЯНЫ.", v.name)].filter(Boolean).join(" · ")} onClick={async () => {
                     await api(withServer(`/docker/volumes/${encodeURIComponent(v.name)}`, serverId), { method: "DELETE" });
                     list.reload();
                   }}>🗑</ActionButton>

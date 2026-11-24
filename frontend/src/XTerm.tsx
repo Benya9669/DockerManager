@@ -21,11 +21,13 @@ const SEARCH_DECOR = {
  *  exec   – interactive shell
  * `download` adds an export button (server-side file); search is available for job/stream modes.
  */
-export function XTerm({ url, mode, onDone, height = 420, download }: {
+export function XTerm({ url, mode, onDone, height = 420, download, onContext }: {
   url: string; mode: Mode; onDone?: (status: string) => void; height?: number | string;
+  onContext?: (line: string) => void;
   download?: { path: string; filename: string };
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const terminal = useRef<Terminal | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
@@ -48,6 +50,7 @@ export function XTerm({ url, mode, onDone, height = 420, download }: {
     term.loadAddon(fit);
     term.loadAddon(search);
     searchRef.current = search;
+    terminal.current = term;
     const sub = search.onDidChangeResults((r) => setMatches(r ? { idx: r.resultIndex, count: r.resultCount } : null));
     term.open(ref.current!);
     try {
@@ -139,6 +142,19 @@ export function XTerm({ url, mode, onDone, height = 420, download }: {
           {query && <span className="muted small">{matches ? (matches.count ? `${matches.idx + 1} / ${matches.count}` : t("не найдено")) : ""}</span>}
           <button className="btn sm" disabled={!query} onClick={() => find("prev")} title={t("предыдущее")}>↑</button>
           <button className="btn sm" disabled={!query} onClick={() => find("next")} title={t("следующее")}>↓</button>
+          {onContext && <button className="btn sm" disabled={!query} onClick={() => {
+            const term = terminal.current;
+            if (!term) return;
+            if (!term.hasSelection()) find("next");
+            const selection = term.getSelectionPosition();
+            if (!selection) return;
+            const buffer = term.buffer.active;
+            let row = selection.start.y;
+            while (row > 0 && buffer.getLine(row)?.isWrapped) row--;
+            let line = buffer.getLine(row)?.translateToString(true) || "";
+            while (buffer.getLine(++row)?.isWrapped) line += buffer.getLine(row)?.translateToString(true);
+            onContext(line);
+          }}>{t("Контекст")}</button>}
           {download && (
             <button className="btn sm" title={query ? tf("скачать строки с «{0}»", query) : t("скачать лог")}
               onClick={() => downloadFile(download.path + (query ? `${download.path.includes("?") ? "&" : "?"}grep=${encodeURIComponent(query)}` : ""), download.filename).catch(toastErr)}>

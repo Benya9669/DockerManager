@@ -93,8 +93,10 @@ label.inline { display: flex; align-items: center; gap: 8px; }
 
 /* cards / tables */
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
-.project-card { color: var(--text); display: flex; flex-direction: column; gap: 6px; transition: border-color .15s; }
+.project-card { position: relative; color: var(--text); display: flex; flex-direction: column; gap: 6px; transition: border-color .15s; }
 .project-card:hover { border-color: var(--accent); text-decoration: none; }
+.project-card h3 a::after { content: ""; position: absolute; inset: 0; }
+.project-card > a.chip { position: relative; align-self: flex-start; }
 .project-card h3 { margin: 0; }
 .desc { margin: 0; color: var(--muted); font-size: 13px; }
 .table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -114,6 +116,9 @@ label.inline { display: flex; align-items: center; gap: 8px; }
 .chip { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); font-size: 12px; color: var(--text); }
 .chip.green { color: #86efac; }
 .chip.yellow { color: #fde68a; }
+.env-values { max-height: 65vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.env-values code { overflow-wrap: anywhere; white-space: pre-wrap; }
+.env-values > div + div { border-top: 1px solid var(--border); }
 .ports { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .port-toggle { color: var(--accent); cursor: pointer; }
 

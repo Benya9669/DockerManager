@@ -1,12 +1,14 @@
 import { t, tf } from "../i18n";
 import { useState } from "react";
 import { api, downloadFile } from "../api";
+import { useServer } from "../server";
 import { JobPanel } from "../JobPanel";
 import { ActionButton, Loading, fmtBytes, fmtDate, toastErr, useFetch } from "../ui";
 
 const KIND: Record<string, string> = { panel: t("панель"), files: t("файлы проекта"), volume: t("том") };
 
 export function BackupsPage() {
+  const { servers } = useServer();
   const list = useFetch<any>(() => api("/backups"), [], 15000);
   const projects = useFetch<any[]>(() => api("/projects"), []);
   const [pid, setPid] = useState("");
@@ -73,9 +75,9 @@ export function BackupsPage() {
                     <button className="btn sm" onClick={() => downloadFile(`/backups/${b.id}/download`, b.filename).catch(toastErr)}>⬇</button>
                   )}
                   {b.status === "success" && b.kind !== "panel" && (
-                    <ActionButton className="btn sm" confirm={b.kind === "volume"
+                    <ActionButton className="btn sm" confirm={[projects.data?.find(p => p.id === b.project_id)?.name, projects.data?.find(p => p.id === b.project_id)?.environment, b.kind === "files" ? t("Локальный") : servers.find(s => s.id === b.server_id)?.name || t("Локальный"), b.kind === "volume"
                       ? tf("Восстановить том {0} из этого архива? ТЕКУЩИЕ ДАННЫЕ ТОМА БУДУТ ЗАМЕНЕНЫ. Контейнеры проекта будут остановлены на время восстановления.", b.target)
-                      : t("Восстановить файлы проекта из архива? Файлы с теми же именами будут перезаписаны.")}
+                      : t("Восстановить файлы проекта из архива? Файлы с теми же именами будут перезаписаны.")].filter(Boolean).join(" · ")}
                       onClick={() => run(tf("Восстановление {0}", b.target))(api(`/backups/${b.id}/restore`, { method: "POST" }))}>{t("↺ Восстановить")}</ActionButton>
                   )}
                   <ActionButton className="btn sm danger" confirm={tf("Удалить {0}?", b.filename)} onClick={async () => {

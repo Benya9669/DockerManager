@@ -52,6 +52,10 @@ class Project(Base):
     webhook_secret: Mapped[str] = mapped_column(String(128), default="")
     webhook_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     server_id: Mapped[int | None] = mapped_column(ForeignKey("servers.id", ondelete="SET NULL"), nullable=True)
+    environment: Mapped[str] = mapped_column(String(32), default="")
+    alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    config_baseline: Mapped[str] = mapped_column(Text, default="")
+    alert_state: Mapped[str] = mapped_column(Text, default="{}")
     auto_rollback: Mapped[bool] = mapped_column(Boolean, default=True)
     health_timeout: Mapped[int] = mapped_column(Integer, default=90)  # seconds to wait for healthy containers
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -78,6 +82,7 @@ class Deployment(Base):
     username: Mapped[str] = mapped_column(String(64), default="")
     commit_before: Mapped[str] = mapped_column(String(64), default="")
     commit_after: Mapped[str] = mapped_column(String(64), default="")
+    diagnostics_enc: Mapped[str] = mapped_column(Text, default="")
     before_enc: Mapped[str] = mapped_column(Text, default="")
     after_enc: Mapped[str] = mapped_column(Text, default="")
     message: Mapped[str] = mapped_column(Text, default="")

@@ -6,6 +6,7 @@ import { XTerm } from "../XTerm";
 import { ProjectMonitoring } from "../Monitoring";
 import { ServerPicker } from "../server";
 import { atLeast, useAuth } from "../auth";
+import { DraftEditor, isEnv, useDraft } from "../FileDraft";
 import { Editor } from "../Editor";
 import { JobPanel } from "../JobPanel";
 import { SshKeySelect } from "../SshKeySelect";
@@ -18,15 +19,15 @@ export function ProjectPage() {
   const [sp, setSp] = useSearchParams();
   const { can } = useAuth();
   const proj = useFetch<any>(() => api(`/projects/${id}`), [id], 5000);
-  const [tab, setTab] = useState(sp.get("tab") || "overview");
+  const tab = sp.get("tab") || "overview";
   const [jobId, setJobId] = useState<number | null>(sp.get("job") ? Number(sp.get("job")) : null);
   const [jobTitle, setJobTitle] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
 
   const changeTab = (t: string) => {
-    setTab(t);
-    sp.set("tab", t);
-    setSp(sp, { replace: true });
+    const next = new URLSearchParams(sp);
+    next.set("tab", t);
+    setSp(next, { replace: true });
   };
 
   const runAction = async (action: string, body: any = {}, title?: string) => {
@@ -49,13 +50,20 @@ export function ProjectPage() {
       <div className="page-head">
         <div>
           <div className="muted small"><Link to="/">{t("Проекты")}</Link> /</div>
-          <h1>{p.name} <span className="muted small">{p.slug}</span></h1>
+          <h1>{p.name} {p.environment && <span className={`badge ${p.environment === "production" ? "red" : "gray"}`}>{p.environment}</span>} <span className="muted small">{p.slug}</span></h1>
           {p.server_name && <div className="small">{t("🖥 Хост:")} <b>{p.server_name}</b></div>}
           {p.description && <div className="muted">{p.description}</div>}
         </div>
         {atLeast(p.my_role, "operator") && <ProjectToolbar p={p} runAction={runAction} />}
       </div>
 
+      {!!p.pending_config?.length && <details className="card"><summary>{t("Есть неприменённые изменения конфигурации")}</summary>
+        <ul>{p.pending_config.map((name:string) => <li key={name}><code>{name}</code></li>)}</ul>
+        <ActionButton disabled={p.busy} onClick={async () => {
+          const result = await api(`/projects/${p.id}/config`);
+          if (!result.ok) throw Error(result.output);
+          await runAction("up", {}, t("Применить конфигурацию"));
+        }}>{t("Проверить и применить")}</ActionButton></details>}
       <EnvSelector p={p} onChange={proj.reload} />
 
       {jobId && (
@@ -89,8 +97,8 @@ export function ProjectPage() {
         {tab === "overview" && <ServicesTab p={p} runAction={runAction} refreshKey={refreshKey} />}
         {tab === "logs" && <ProjectLogs p={p} />}
         {tab === "monitoring" && <ProjectMonitoring projectId={p.id} />}
-        {tab === "env" && <EnvTab p={p} onChange={proj.reload} />}
-        {tab === "files" && <FilesTab p={p} />}
+        {tab === "env" && <EnvTab key={p.id} p={p} onChange={proj.reload} />}
+        {tab === "files" && <FilesTab key={p.id} p={p} />}
         {tab === "git" && <GitTab p={p} startJob={startJob} refreshKey={refreshKey} />}
         {tab === "deploys" && <DeploymentsTab p={p} open={startJob} refreshKey={refreshKey} />}
         {tab === "jobs" && <ProjectJobs p={p} open={startJob} refreshKey={refreshKey} />}
@@ -122,7 +130,7 @@ function ProjectToolbar({ p, runAction }: { p: any; runAction: (a: string, body?
       <ActionButton disabled={dis} onClick={() => runAction("restart", {}, t("Перезапуск"))}>⟳ Restart</ActionButton>
       <ActionButton disabled={dis} onClick={() => runAction("pull", {}, t("Pull образов"))}>⬇ Pull</ActionButton>
       <ActionButton disabled={dis} onClick={() => runAction("stop", {}, t("Остановка"))}>⏸ Stop</ActionButton>
-      <ActionButton disabled={dis} className="btn danger" confirm={t("Остановить и удалить контейнеры проекта (docker compose down)?")}
+      <ActionButton disabled={dis} className="btn danger" confirm={[p.name, p.environment, p.server_name || t("Локальный"), t("Остановить и удалить контейнеры проекта (docker compose down)?")].filter(Boolean).join(" · ")}
         onClick={() => runAction("down", {}, "Down")}>⏹ Down</ActionButton>
       <ActionButton disabled={dis} title={t("удалить остановленные контейнеры и старые образы проекта")}
         confirm={t("Удалить остановленные контейнеры проекта и неиспользуемые образы, собранные для него?")}
@@ -300,7 +308,7 @@ function DeploymentsTab({ p, open, refreshKey }: { p: any; open: (id: number, t:
               return (
                 <tr key={d.id}>
                   <td>{d.id}</td>
-                  <td>{d.kind === "rollback" ? t("откат") : t("деплой")}{d.message && <div className="muted small">{d.message}</div>}</td>
+                  <td>{d.kind === "rollback" ? t("откат") : t("деплой")}{d.diagnostics && <details><summary>{t("Причина сбоя и логи")}</summary><pre className="small">{d.diagnostics}</pre></details>}{d.message && <div className="muted small">{d.message}</div>}</td>
                   <td><span className={`badge ${cls}`}>{text}</span>{latestOk?.id === d.id && <span className="badge green" style={{ marginLeft: 4 }}>{t("текущий")}</span>}</td>
                   <td className="mono small">{d.commit_before ? d.commit_before.slice(0, 8) : "—"}{d.commit_after && d.commit_after !== d.commit_before && ` → ${d.commit_after.slice(0, 8)}`}</td>
                   <td>{d.username}</td>
@@ -328,9 +336,12 @@ function DeploymentsTab({ p, open, refreshKey }: { p: any; open: (id: number, t:
 function ProjectLogs({ p }: { p: any }) {
   const s = useFetch<any>(() => api(`/projects/${p.id}/services`), [p.id]);
   const names: string[] = (s.data?.services || []).map((x: any) => x.name);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [params, setParams] = useSearchParams();
+  const cid = params.get("container"), at = params.get("at");
+  const context = useFetch<any>(() => cid && at ? api(`/projects/${p.id}/logs/context?${new URLSearchParams({container:cid, at})}`) : Promise.resolve(null), [p.id, cid, at]);
+  const [selected, setSelected] = useState<string[]>(() => params.get("service") ? [params.get("service")!] : []);
   const [tail, setTail] = useState("200");
-  const [ts, setTs] = useState(false);
+  const [ts, setTs] = useState(true);
   const [key, setKey] = useState(0);
   const toggle = (n: string) => setSelected((cur) => (cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n]));
 
@@ -349,7 +360,19 @@ function ProjectLogs({ p }: { p: any }) {
         <label className="check"><input type="checkbox" checked={ts} onChange={(e) => setTs(e.target.checked)} />{t("время")}</label>
         <button className="btn sm" onClick={() => setKey((k) => k + 1)}>{t("Переподключить")}</button>
       </div>
+      {cid && at && <div className="card"><div className="row between"><b>{t("Контекст события")}</b><div>
+        <ActionButton onClick={() => navigator.clipboard.writeText(location.href)}>{t("Копировать ссылку")}</ActionButton>
+        <button className="btn" onClick={() => {const next = new URLSearchParams(params); next.delete("container"); next.delete("at"); setParams(next);}}>×</button></div></div>
+        <Loading loading={context.loading} error={context.error}/>{!context.error && !context.loading && context.data && <pre>{context.data.before.join("\n")}{"\n"}<mark>{context.data.line}</mark>{"\n"}{context.data.after.join("\n")}</pre>}</div>}
       <XTerm
+        onContext={line => {
+          const match = /^\s*(\S+)\s*\|\s*(\d{4}-\d\d-\d\dT[\d:.]+Z)/.exec(line);
+          if (!match) return toast(t("Для контекста включите время и выберите строку лога"), "err");
+          const containers = (s.data?.services || []).flatMap((svc:any) => svc.containers || []);
+          const c = containers.find((item:any) => item.name === match[1] || item.name === p.slug + "-" + match[1] || item.name === p.slug + "_" + match[1]);
+          if (!c) return toast(t("Контейнер больше недоступен"), "err");
+          const next = new URLSearchParams(params); next.set("tab","logs"); next.set("service",c.service); next.set("container",c.id); next.set("at",match[2]); setParams(next);
+        }}
         key={key}
         url={wsUrl(`/projects/${p.id}/logs`, { tail, timestamps: ts ? "1" : "0", services: selected.join(",") })}
         mode="stream"
@@ -367,47 +390,39 @@ function ProjectLogs({ p }: { p: any }) {
 function EnvTab({ p, onChange }: { p: any; onChange: () => void }) {
   const files = useFetch<any>(() => api(`/projects/${p.id}/env-files`), [p.id]);
   const [sel, setSel] = useState<string | null>(null);
-  const [content, setContent] = useState("");
-  const [orig, setOrig] = useState("");
+  const draft = useDraft(p.id, sel, true);
+  const { content, orig, setContent } = draft;
   const list: string[] = files.data?.files || [];
 
   useEffect(() => {
     if (sel === null && list.length) setSel(p.env_file && list.includes(p.env_file) ? p.env_file : list[0]);
   }, [list.join(",")]);
 
-  useEffect(() => {
-    if (!sel) return;
-    api(`/projects/${p.id}/files?path=${encodeURIComponent(sel)}`)
-      .then((r) => {
-        setContent(r.content);
-        setOrig(r.content);
-      })
-      .catch(toastErr);
-  }, [sel]);
+
 
   const create = async () => {
     const name = prompt(t("Имя нового env-файла"), ".env.production");
     if (!name) return;
     const base = sel ? confirm(tf("Скопировать содержимое из {0}?", sel)) : false;
-    await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: name, content: base ? content : "" } });
+    await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: name, revision: "missing", content: base ? content : "" } });
     await files.reload();
     setSel(name);
   };
 
   return (
-    <div className="split">
+    <div className="split">{draft.dialogs}
       <div className="side-list">
         {list.map((f) => (
-          <div key={f} className={`side-item ${sel === f ? "active" : ""}`} onClick={() => setSel(f)}>
+          <div key={f} className={`side-item ${sel === f ? "active" : ""}`} onClick={() => sel !== f && draft.guard(() => setSel(f))}>
             <span>{f}</span>
             {p.env_file === f && <span className="badge green">{t("активен")}</span>}
           </div>
         ))}
         {!list.length && <div className="muted pad">{t("env-файлов не найдено")}</div>}
-        <ActionButton className="btn full" onClick={create}>{t("+ Новый env-файл")}</ActionButton>
+        <ActionButton className="btn full" onClick={() => draft.guard(() => { void create().catch(toastErr); })}>{t("+ Новый env-файл")}</ActionButton>
       </div>
       <div className="grow">
-        {sel && (
+        {sel && draft.loaded && (
           <>
             <div className="row between mb">
               <b className="mono">{sel}{content !== orig && " •"}</b>
@@ -425,14 +440,10 @@ function EnvTab({ p, onChange }: { p: any; onChange: () => void }) {
                   files.reload();
                   onChange();
                 }}>{t("Удалить")}</ActionButton>
-                <ActionButton className="btn primary" disabled={content === orig} onClick={async () => {
-                  await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: sel, content } });
-                  setOrig(content);
-                  toast(t("Сохранено. Чтобы применить — Up или Деплой"));
-                }}>{t("Сохранить")}</ActionButton>
+                <ActionButton className="btn primary" disabled={content === orig} onClick={draft.save}>{t("Сохранить")}</ActionButton>
               </div>
             </div>
-            <Editor value={content} onChange={setContent} filename={sel} />
+            <DraftEditor key={sel} env path={sel} value={content} change={setContent} />
           </>
         )}
       </div>
@@ -444,28 +455,18 @@ function EnvTab({ p, onChange }: { p: any; onChange: () => void }) {
 function FilesTab({ p }: { p: any }) {
   const [dir, setDir] = useState("");
   const [file, setFile] = useState<string | null>(null);
-  const [content, setContent] = useState("");
-  const [orig, setOrig] = useState("");
-  const [binary, setBinary] = useState(false);
+  const env = !!file && (isEnv(file) || file === p.env_file);
+  const draft = useDraft(p.id, file, env);
+  const {content, orig, binary, setContent} = draft;
   const listing = useFetch<any>(() => api(`/projects/${p.id}/files?path=${encodeURIComponent(dir)}`), [p.id, dir]);
 
-  const open = async (path: string) => {
-    try {
-      const r = await api(`/projects/${p.id}/files?path=${encodeURIComponent(path)}`);
-      setFile(path);
-      setBinary(r.binary);
-      setContent(r.content);
-      setOrig(r.content);
-    } catch (e) {
-      toastErr(e);
-    }
-  };
+  const open = (path: string) => { if (file !== path) draft.guard(() => setFile(path)); };
   const join = (name: string) => (dir ? `${dir}/${name}` : name);
   const crumbs = dir ? dir.split("/") : [];
 
   return (
     <div className="split">
-      <div className="side-list files">
+      {draft.dialogs}<div className="side-list files">
         <div className="crumbs">
           <a onClick={() => setDir("")}>/</a>
           {crumbs.map((c, i) => (
@@ -476,7 +477,7 @@ function FilesTab({ p }: { p: any }) {
           <ActionButton className="btn sm" onClick={async () => {
             const n = prompt(t("Имя файла"));
             if (!n) return;
-            await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: join(n), content: "" } });
+            await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: join(n), content: "", revision: "missing" } });
             listing.reload();
             open(join(n));
           }}>{t("+ Файл")}</ActionButton>
@@ -498,12 +499,12 @@ function FilesTab({ p }: { p: any }) {
         ))}
       </div>
       <div className="grow">
-        {file ? (
+        {file && draft.loaded ? (
           <>
             <div className="row between mb">
               <b className="mono">{file}{content !== orig && " •"}</b>
               <div className="row">
-                <ActionButton className="btn" onClick={async () => {
+                <ActionButton className="btn" disabled={draft.dirty} onClick={async () => {
                   const n = prompt(t("Новый путь"), file);
                   if (!n || n === file) return;
                   await api(`/projects/${p.id}/files/rename`, { body: { path: file, new_path: n } });
@@ -515,14 +516,10 @@ function FilesTab({ p }: { p: any }) {
                   setFile(null);
                   listing.reload();
                 }}>{t("Удалить")}</ActionButton>
-                <ActionButton className="btn primary" disabled={binary || content === orig} onClick={async () => {
-                  await api(`/projects/${p.id}/files`, { method: "PUT", body: { path: file, content } });
-                  setOrig(content);
-                  toast(t("Сохранено"));
-                }}>{t("Сохранить")}</ActionButton>
+                <ActionButton className="btn primary" disabled={binary || content === orig} onClick={draft.save}>{t("Сохранить")}</ActionButton>
               </div>
             </div>
-            {binary ? <div className="empty">{t("Бинарный файл — редактирование недоступно")}</div> : <Editor value={content} onChange={setContent} filename={file} />}
+            {binary ? <div className="empty">{t("Бинарный файл — редактирование недоступно")}</div> : <DraftEditor key={file} env={env} path={file} value={content} change={setContent} />}
           </>
         ) : (
           <div className="empty">{t("Выберите файл слева")}</div>
@@ -633,7 +630,7 @@ function ProjectJobs({ p, open, refreshKey }: { p: any; open: (id: number, t: st
 function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (id: number, t: string) => void }) {
   const nav = useNavigate();
   const [f, setF] = useState({
-    name: p.name, description: p.description, repo_url: p.repo_url, git_username: p.git_username,
+    name: p.name, environment: p.environment || "", alerts_enabled: !!p.alerts_enabled, description: p.description, repo_url: p.repo_url, git_username: p.git_username,
     git_token: "", ssh_key: p.ssh_key || "", compose_files: p.compose_files, webhook_enabled: p.webhook_enabled,
     auto_rollback: p.auto_rollback ?? true, health_timeout: p.health_timeout ?? 90,
     server_id: (p.server_id ?? null) as number | null, set_server: false,
@@ -659,6 +656,9 @@ function SettingsTab({ p, onSaved }: { p: any; onSaved: () => void; startJob: (i
           <label>{t("Название")}<input value={f.name} onChange={set("name")} /></label>
           <label>{t("Compose-файлы (через запятую)")}<input value={f.compose_files} onChange={set("compose_files")} /></label>
         </div>
+        <label>{t("Окружение")}<input value={f.environment} maxLength={32} placeholder="production / staging" onChange={set("environment")}/></label>
+        <label className="check"><input type="checkbox" checked={f.alerts_enabled} onChange={set("alerts_enabled")}/>{t("Уведомления о сбое и восстановлении")}</label>
+        {f.alerts_enabled && !p.alerts_configured && <div className="hint">{t("Задайте DM_ALERT_WEBHOOK или DM_TELEGRAM_TOKEN и DM_TELEGRAM_CHAT_ID в окружении панели.")}</div>}
         <label>{t("Описание")}<input value={f.description} onChange={set("description")} /></label>
         <div className="muted small">{t("Путь:")} <span className="mono">{p.path}</span></div>
         <label>

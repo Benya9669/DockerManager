@@ -94,7 +94,8 @@ async def lifespan(app: FastAPI):
     servers_mod.write_ssh_config()
     updater.start_background()
     if not os.getenv("DM_TESTING"):
-        from . import metrics
+        from . import alerts, metrics
+        alerts.start_background()
         metrics.start_background()
     log.info("Docker Manager %s started", VERSION)
     hours = settings.auto_prune_hours

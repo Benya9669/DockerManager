@@ -4,6 +4,7 @@ A snapshot captures what is needed to bring a project back: git commit, contents
 compose files and the active env file, and the image IDs the containers were running
 (so `image: foo:latest` can be re-tagged to the previous image on rollback).
 """
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -17,6 +18,43 @@ from .security import decrypt, encrypt
 
 
 # ---------- snapshots ----------
+def config_versions(p: Project) -> dict:
+    versions = {}
+    root = Path(p.path).resolve()
+    for name in compose.compose_files(p) + [p.env_file or ".env"]:
+        path = (root / name).resolve()
+        if path.is_relative_to(root) and path.is_file():
+            with path.open("rb") as stream:
+                versions[name] = hashlib.file_digest(stream, "sha256").hexdigest()
+    return versions
+
+
+def record_config(project_id: int, versions: dict) -> None:
+    with SessionLocal() as db:
+        p = db.get(Project, project_id)
+        if p:
+            p.config_baseline = json.dumps(versions)
+            db.commit()
+
+
+def failure_report(p: Project, ctx: JobContext) -> str:
+    lines = [ctx.data.get("step", "Deploy"), "".join(ctx.live.chunks[-8:])[-4096:]]
+    try:
+        for c in _containers(p):
+            status = c.get("Status", "")
+            if c.get("State") == "running" and not any(s in status for s in ("unhealthy", "starting")):
+                continue
+            service = (c.get("Labels") or {}).get("com.docker.compose.service", c["Id"][:12])
+            lines.append(f"{service} · {status}")
+            try:
+                lines.append(api(p.server_id).logs(c["Id"], tail=30, timestamps=True)[-8192:].decode(errors="replace"))
+            except Exception:
+                lines.append("Logs unavailable")
+    except Exception:
+        lines.append("Docker unavailable")
+    return "\n".join(lines)[:32768]
+
+
 def _head(p: Project) -> str:
     if p.source != "git" or not git_ops.is_repo(p):
         return ""
@@ -241,12 +279,14 @@ def deploy_steps(p: Project, username: str, no_cache: bool = False, kind: str = 
         after = snapshot(p)
         _save(ctx.data["dep_id"], status="success", commit_after=after["commit"],
               after_enc=encrypt(json.dumps(after)), finished_at=utcnow())
+        record_config(p.id, ctx.data["config_versions"])
         ctx.ok("Деплой успешен")
 
     def on_failure(ctx: JobContext):
         dep_id = ctx.data.get("dep_id")
         if not dep_id:
             return
+        _save(dep_id, diagnostics_enc=encrypt(failure_report(p, ctx)))
         if not p.auto_rollback:
             _save(dep_id, status="failed", finished_at=utcnow())
             ctx.error("Автооткат выключен — проект оставлен как есть")
@@ -257,11 +297,16 @@ def deploy_steps(p: Project, username: str, no_cache: bool = False, kind: str = 
             return
         ctx.emit(f"\n\x1b[33m↺ Автооткат к {source}\x1b[0m\n")
         ok = apply_snapshot(ctx, p, snap) and wait_healthy(ctx, p, p.health_timeout or 90)
+        if ok:
+            record_config(p.id, config_versions(p))
         _save(dep_id, status="rolled_back" if ok else "failed", finished_at=utcnow(),
               message="автооткат выполнен" if ok else "автооткат не удался")
         (ctx.ok if ok else ctx.error)("Откат выполнен, работает предыдущая версия" if ok else "Откат не удался")
 
-    steps = [("Снимок состояния", step_snapshot), *compose.action_steps(p, "deploy", no_cache=no_cache),
+    commands = compose.action_steps(p, "deploy", no_cache=no_cache)
+    def capture_config(ctx):
+        ctx.data["config_versions"] = config_versions(p)
+    steps = [("Снимок состояния", step_snapshot), *commands[:-1], ("", capture_config), commands[-1],
              ("Проверка здоровья", step_health), ("", step_finalize)]
     return steps, on_failure
 
@@ -291,6 +336,7 @@ def rollback_steps(p: Project, target: Deployment, username: str):
         after = snapshot(p)
         _save(ctx.data["dep_id"], status="success", commit_after=after["commit"],
               after_enc=encrypt(json.dumps(after)), finished_at=utcnow())
+        record_config(p.id, config_versions(p))
         ctx.ok(f"Проект возвращён к состоянию деплоя #{target.id}")
 
     def on_failure(ctx: JobContext):

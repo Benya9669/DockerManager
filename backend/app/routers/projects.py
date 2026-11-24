@@ -1,8 +1,11 @@
+import hashlib
+import json
 import re
 import secrets
 import shutil
-from collections import Counter
+from collections import Counter, deque
 from pathlib import Path
+from datetime import datetime
 
 import asyncio
 import codecs
@@ -21,10 +24,10 @@ from ..deps import ROLE_LEVEL, audit, get_project, require, ws_user
 from ..access import level, project_role, require_project, roles_by_project
 from ..discover import discover_stacks
 from ..servers import docker_env
-from ..dockerc import list_containers
+from ..dockerc import api as docker_api, list_containers
 from ..jobs import BusyError, runner
 from ..models import Deployment, Project, User
-from ..security import encrypt
+from ..security import decrypt, encrypt
 from ..textfiles import text_download
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -95,6 +98,8 @@ class ProjectIn(BaseModel):
 
 
 class ProjectPatch(BaseModel):
+    environment: str | None = Field(default=None, max_length=32)
+    alerts_enabled: bool | None = None
     name: str | None = None
     description: str | None = None
     repo_url: str | None = None
@@ -132,7 +137,11 @@ class ActionIn(BaseModel):
     no_cache: bool = False
 
 
+file_lock = threading.Lock()
+
+
 class FileIn(BaseModel):
+    revision: str | None = None
     path: str
     content: str
 
@@ -163,6 +172,7 @@ def project_out(p: Project, user: User | None = None, counts: Counter | None = N
     return {
         "my_role": role,
         "id": p.id, "slug": p.slug, "name": p.name, "description": p.description, "source": p.source,
+        "environment": p.environment, "alerts_enabled": p.alerts_enabled,
         "path": p.path, "managed": p.managed, "repo_url": p.repo_url, "branch": p.branch,
         "git_username": p.git_username, "has_token": bool(p.git_token_enc), "ssh_key": p.ssh_key,
         "compose_files": p.compose_files, "env_file": p.env_file,
@@ -280,17 +290,29 @@ def list_projects(user: User = Depends(require("viewer")), db: Session = Depends
     roles = roles_by_project(db, user)
     projects = [p for p in db.scalars(select(Project).order_by(Project.name)) if level(roles.get(p.id)) >= level("viewer")]
     running, total = Counter(), Counter()  # keyed by (server_id, compose project)
+    issues = {}
+    unavailable = set()
     for sid in {p.server_id for p in projects}:
         try:
             for c in list_containers(server_id=sid):
                 if c["project"]:
                     total[(sid, c["project"])] += 1
+                    if c["state"] == "restarting" or "unhealthy" in (c.get("status") or ""):
+                        issues.setdefault((sid, c["project"]), []).append({"kind": "service", "name": c.get("service") or c.get("name")})
                     if c["state"] == "running":
                         running[(sid, c["project"])] += 1
-        except HTTPException:
-            pass
-    return [project_out(p, user, Counter({p.slug: running[(p.server_id, p.slug)]}),
-                        Counter({p.slug: total[(p.server_id, p.slug)]}), role=roles.get(p.id))
+        except Exception:
+            unavailable.add(sid)
+    def attention(p):
+        result = list(issues.get((p.server_id, p.slug), []))
+        if p.server_id in unavailable:
+            result.append({"kind": "host"})
+        latest = db.scalar(select(Deployment.status).where(Deployment.project_id == p.id).order_by(Deployment.id.desc()).limit(1))
+        if latest in {"failed", "rolled_back"}:
+            result.append({"kind": "deploy"})
+        return result
+    return [dict(project_out(p, user, Counter({p.slug: running[(p.server_id, p.slug)]}),
+                        Counter({p.slug: total[(p.server_id, p.slug)]}), role=roles.get(p.id)), attention=attention(p))
             for p in projects]
 
 
@@ -372,13 +394,29 @@ def _clone(p: Project, user: User) -> dict:
 @router.get("/{project_id}")
 def get_one(project_id: int, user: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
-    return project_out(p, user)
+    result = project_out(p, user)
+    if user.role == "admin":
+        from ..alerts import destination
+        result["alerts_configured"] = bool(destination()[0])
+    if level(result["my_role"]) >= level("operator") and not p.config_baseline:
+        previous = db.scalar(select(Deployment.after_enc).where(Deployment.project_id == p.id, Deployment.status == "success", Deployment.after_enc != "").order_by(Deployment.id.desc()).limit(1))
+        if previous:
+            files = json.loads(decrypt(previous)).get("files", {})
+            p.config_baseline = json.dumps({name: hashlib.sha256(content.encode()).hexdigest() for name, content in files.items()})
+            db.commit()
+    if level(result["my_role"]) >= level("operator") and p.config_baseline:
+        before = json.loads(p.config_baseline)
+        now = deploy.config_versions(p)
+        result["pending_config"] = sorted(k for k in before.keys() | now.keys() if before.get(k) != now.get(k))
+    return result
 
 
 @router.patch("/{project_id}")
 def update_project(project_id: int, data: ProjectPatch, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
     p = get_project(db, project_id)
-    for field in ("name", "description", "repo_url", "git_username", "compose_files", "env_file", "webhook_enabled",
+    if not p.config_baseline and (data.compose_files is not None or data.env_file is not None):
+        p.config_baseline = json.dumps(deploy.config_versions(p))
+    for field in ("name", "environment", "alerts_enabled", "description", "repo_url", "git_username", "compose_files", "env_file", "webhook_enabled",
                   "auto_rollback", "health_timeout"):
         v = getattr(data, field)
         if v is not None:
@@ -393,6 +431,8 @@ def update_project(project_id: int, data: ProjectPatch, user: User = Depends(req
         p.git_token_enc = encrypt(data.git_token.strip())
     if data.clear_token:
         p.git_token_enc = ""
+    if data.alerts_enabled is False:
+        p.alert_state = "{}"
     if data.regenerate_webhook or not p.webhook_secret:
         p.webhook_secret = secrets.token_urlsafe(24)
     db.commit()
@@ -408,6 +448,8 @@ def set_env(project_id: int, data: PathIn, user: User = Depends(require_project(
         target = safe_path(p, data.path)
         if not target.is_file():
             raise HTTPException(404, "File not found")
+    if not p.config_baseline:
+        p.config_baseline = json.dumps(deploy.config_versions(p))
     p.env_file = data.path
     db.commit()
     audit(db, user, "project.env.select", p.slug, data.path or "(none)")
@@ -442,8 +484,8 @@ def project_services(project_id: int, _: User = Depends(require_project("viewer"
     try:
         containers = list_containers(p.slug, p.server_id)
         docker_error = None
-    except HTTPException as e:
-        containers, docker_error = [], e.detail
+    except Exception as e:
+        containers, docker_error = [], str(e)
     by_service: dict[str, list] = {n: [] for n in names}
     for c in containers:
         by_service.setdefault(c["service"] or c["name"], []).append(c)
@@ -481,6 +523,9 @@ def project_action(
         steps, on_failure = deploy.deploy_steps(p, user.username, no_cache)
         return start_job(p, user, "deploy", steps, on_failure=on_failure)
     steps = compose.action_steps(p, action, service, no_cache)
+    if not service and action in {"up", "rebuild", "recreate"}:
+        versions = deploy.config_versions(p)
+        return start_job(p, user, f"compose.{action}", steps, on_success=lambda: deploy.record_config(p.id, versions))
     return start_job(p, user, f"compose.{action}" + (f":{service}" if service else ""), steps)
 
 
@@ -509,6 +554,7 @@ def list_deployments(project_id: int, _: User = Depends(require_project("viewer"
     return [{
         "id": d.id, "job_id": d.job_id, "kind": d.kind, "status": d.status, "username": d.username,
         "commit_before": d.commit_before, "commit_after": d.commit_after, "message": d.message,
+        "diagnostics": decrypt(d.diagnostics_enc) if d.diagnostics_enc else "",
         "can_rollback": d.status == "success" and bool(d.after_enc),
         "created_at": d.created_at, "finished_at": d.finished_at,
     } for d in rows]
@@ -660,7 +706,7 @@ def list_or_read(project_id: int, path: str = "", _: User = Depends(require_proj
     raw = target.read_bytes()
     if b"\x00" in raw[:8000]:
         return {"type": "file", "path": path, "binary": True, "size": size, "content": ""}
-    return {"type": "file", "path": path, "binary": False, "size": size, "content": raw.decode("utf-8", errors="replace")}
+    return {"type": "file", "path": path, "binary": False, "revision": hashlib.sha256(raw).hexdigest(), "size": size, "content": raw.decode("utf-8", errors="replace")}
 
 
 @router.put("/{project_id}/files")
@@ -671,10 +717,24 @@ def write_file(project_id: int, data: FileIn, user: User = Depends(require_proje
     if target.is_dir():
         raise HTTPException(400, "Path is a directory")
     target.parent.mkdir(parents=True, exist_ok=True)
-    with open(target, "w", encoding="utf-8", newline="") as f:
-        f.write(data.content)
+    raw = data.content.encode("utf-8")
+    if len(raw) > settings.max_file_size:
+        raise HTTPException(413, "File too large")
+    with file_lock:
+        if data.revision is not None:
+            revision = "missing"
+            if target.exists():
+                with target.open("rb") as stream:
+                    revision = hashlib.file_digest(stream, "sha256").hexdigest()
+            if data.revision != revision:
+                raise HTTPException(409, "File changed on server")
+        db.refresh(p, ["config_baseline"])
+        if not p.config_baseline:
+            p.config_baseline = json.dumps(deploy.config_versions(p))
+            db.commit()
+        target.write_bytes(raw)
     audit(db, user, "file.write", p.slug, data.path)
-    return {"ok": True}
+    return {"ok": True, "revision": hashlib.sha256(raw).hexdigest()}
 
 
 @router.post("/{project_id}/files/mkdir")
@@ -724,6 +784,45 @@ def delete_file(project_id: int, path: str = Query(...), user: User = Depends(re
 
 
 # ---------- combined logs of all services ----------
+@router.get("/{project_id}/logs/context")
+def log_context(project_id: int, container: str, at: str = Query(pattern=r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$"),
+                _: User = Depends(require_project("viewer")), db: Session = Depends(get_db)):
+    p = get_project(db, project_id)
+    matches = [c for c in list_containers(p.slug, p.server_id) if c["id"] == container]
+    if not matches:
+        raise HTTPException(404, "Container no longer available")
+    try:
+        epoch = int(datetime.fromisoformat(at).timestamp())
+    except ValueError:
+        raise HTTPException(422, "Invalid timestamp")
+    if epoch <= 0:
+        raise HTTPException(422, "Invalid timestamp")
+    client = docker_api(p.server_id)
+    # Docker SDK accepts integer seconds. Split the anchor second at full log precision.
+    previous = client.logs(container, until=epoch, tail=30, timestamps=True).decode(errors="replace").splitlines()
+    before = deque((line[:8192] for line in previous[-30:]), maxlen=30)
+    after = []
+    anchor = None
+    stream = client.logs(container, since=epoch, stream=True, follow=False, timestamps=True)
+    try:
+        for chunk in stream:
+            for line in chunk.decode(errors="replace").splitlines():
+                stamp = line.partition(" ")[0]
+                if stamp == at and anchor is None:
+                    anchor = line[:8192]
+                elif anchor is None and stamp < at:
+                    before.append(line[:8192])
+                elif len(after) < 30:
+                    after.append(line[:8192])
+            if len(after) >= 30:
+                break
+    finally:
+        stream.close()
+    if anchor is None:
+        raise HTTPException(404, "Log entry is no longer available")
+    return {"before": list(before), "line": anchor, "after": after}
+
+
 @router.get("/{project_id}/logs/download")
 def download_project_logs(project_id: int, tail: str = "all", timestamps: int = 0, services: str = "",
                           grep: str | None = None, _: User = Depends(require_project("viewer")),

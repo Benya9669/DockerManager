@@ -12,26 +12,28 @@ export function ProjectsPage() {
   const { data, error, loading, reload } = useFetch<any[]>(() => api("/projects"), [], 10000);
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [attention, setAttention] = useState(false);
   const [q, setQ] = useState("");
-  const list = (data || []).filter((p) => !q || (p.name + p.slug + p.description).toLowerCase().includes(q.toLowerCase()));
+  const list = (data || []).filter(p => !attention || p.attention?.length).filter((p) => !q || (p.name + p.slug + p.description).toLowerCase().includes(q.toLowerCase()));
 
   return (
     <div>
       <div className="page-head">
         <h1>{t("Проекты")}</h1>
         <div className="row">
+          <label className="check"><input type="checkbox" checked={attention} onChange={e => setAttention(e.target.checked)}/>{t("Требуют внимания")}</label>
           <input placeholder={t("Поиск…")} value={q} onChange={(e) => setQ(e.target.value)} />
           {can("admin") && <button className="btn" onClick={() => setShowImport(true)}>{t("⤓ Импорт запущенных стеков")}</button>}
           {can("admin") && <button className="btn primary" onClick={() => setShowNew(true)}>{t("+ Новый проект")}</button>}
         </div>
       </div>
       <Loading error={error} loading={loading && !data} />
-      {data && !list.length && <div className="empty">{t("Проектов пока нет.")}{can("admin") && t(" Создайте первый — из git-репозитория, существующей папки или с нуля.")}</div>}
+      {data && !list.length && <div className="empty">{t(q || attention ? "Нет подходящих проектов" : "Проектов пока нет.")}{!q && !attention && can("admin") && t(" Создайте первый — из git-репозитория, существующей папки или с нуля.")}</div>}
       <div className="grid">
         {list.map((p) => (
-          <Link key={p.id} to={`/projects/${p.id}`} className="card project-card">
+          <div key={p.id} className="card project-card">
             <div className="row between">
-              <h3>{p.name}</h3>
+              <h3><Link to={`/projects/${p.id}`}>{p.name}</Link></h3>{p.environment && <span className={`badge ${p.environment === "production" ? "red" : "gray"}`}>{p.environment}</span>}
               {p.busy && <span className="badge yellow">{t("задача…")}</span>}
             </div>
             <div className="muted small">{p.slug}</div>
@@ -44,7 +46,9 @@ export function ProjectsPage() {
                 ▶ {p.containers_running}/{p.containers_total}
               </span>
             </div>
-          </Link>
+            {p.attention?.map((issue:any,i:number) => <Link key={i} className="chip" to={`/projects/${p.id}?tab=${issue.kind === "deploy" ? "deploys" : issue.kind === "host" ? "overview" : "logs&service=" + encodeURIComponent(issue.name)}`}>
+              {issue.kind === "deploy" ? t("Сбой деплоя") : issue.kind === "host" ? t("Хост недоступен") : issue.name + " · " + t("Проблема сервиса")}</Link>)}
+          </div>
         ))}
       </div>
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} onCreated={reload} />}
