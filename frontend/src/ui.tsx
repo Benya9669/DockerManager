@@ -1,3 +1,4 @@
+import { groupPorts, portLabel, type Port } from "./ports";
 import { t, tf, LOCALE, getTheme, type Theme } from "./i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -174,26 +175,24 @@ export function fmtAgo(v?: string | number | null) {
 
 const portPreviewLimit = 3;
 
-export function Ports({ ports }: { ports: any[] }) {
+export function Ports({ ports }: { ports: Port[] }) {
   const [expanded, setExpanded] = useState(false);
-  const pub = (ports || []).filter((p) => p.public).sort((a, b) =>
-    a.public - b.public || a.private - b.private || String(a.type).localeCompare(String(b.type))
-  );
-  const uniq = Array.from(new Set(pub.map((p) => `${p.public}:${p.private}/${p.type}`)));
-  if (!uniq.length) return <span className="muted">—</span>;
+  const groups = groupPorts(ports || []);
+  if (!groups.length) return <span className="muted">—</span>;
   return (
     <span className="ports">
-      {(expanded ? uniq : uniq.slice(0, portPreviewLimit)).map((p) => {
-        const pubPort = p.split(":")[0];
+      {(expanded ? groups : groups.slice(0, portPreviewLimit)).map((group) => {
+        const label = portLabel(group);
+        if (group.first !== group.last) return <span className="chip" key={label}>{label}</span>;
         return (
-          <a key={p} href={`${location.protocol}//${location.hostname}:${pubPort}`} target="_blank" rel="noreferrer" className="chip">
-            {p}
+          <a key={label} href={`${location.protocol}//${location.hostname}:${group.first.public}`} target="_blank" rel="noreferrer" className="chip">
+            {label}
           </a>
         );
       })}
-      {uniq.length > portPreviewLimit && (
+      {groups.length > portPreviewLimit && (
         <button type="button" className="chip port-toggle" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-          {expanded ? t("Свернуть") : tf("Ещё {0}", uniq.length - portPreviewLimit)}
+          {expanded ? t("Свернуть") : tf("Ещё {0}", groups.length - portPreviewLimit)}
         </button>
       )}
     </span>

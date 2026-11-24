@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useTheme } from "./ui";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
@@ -13,6 +14,8 @@ function langFor(filename: string) {
 export function Editor({
   value, onChange, filename = "", readOnly, height = "60vh",
 }: { value: string; onChange?: (v: string) => void; filename?: string; readOnly?: boolean; height?: string }) {
+  const extensions = useMemo(() => langFor(filename), [filename]);
+  const basicSetup = useMemo(() => ({ lineNumbers: true, foldGutter: true, highlightActiveLine: !readOnly }), [readOnly]);
   return (
     <CodeMirror
       value={value}
@@ -20,8 +23,8 @@ export function Editor({
       theme={useTheme()}
       height={height}
       readOnly={readOnly}
-      extensions={langFor(filename)}
-      basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: !readOnly }}
+      extensions={extensions}
+      basicSetup={basicSetup}
     />
   );
 }
