@@ -115,6 +115,7 @@ label.inline { display: flex; align-items: center; gap: 8px; }
 .chip.green { color: #86efac; }
 .chip.yellow { color: #fde68a; }
 .ports { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.port-toggle { color: var(--accent); cursor: pointer; }
 
 .alert { padding: 10px 14px; border-radius: var(--radius); margin-bottom: 12px; }
 .alert.err { background: #2a1111; border: 1px solid #6b2525; color: #fecaca; }

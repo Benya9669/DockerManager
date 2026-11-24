@@ -172,13 +172,18 @@ export function fmtAgo(v?: string | number | null) {
   return tf("{0} дн назад", Math.floor(s / 86400));
 }
 
+const portPreviewLimit = 3;
+
 export function Ports({ ports }: { ports: any[] }) {
-  const pub = (ports || []).filter((p) => p.public);
+  const [expanded, setExpanded] = useState(false);
+  const pub = (ports || []).filter((p) => p.public).sort((a, b) =>
+    a.public - b.public || a.private - b.private || String(a.type).localeCompare(String(b.type))
+  );
   const uniq = Array.from(new Set(pub.map((p) => `${p.public}:${p.private}/${p.type}`)));
   if (!uniq.length) return <span className="muted">—</span>;
   return (
     <span className="ports">
-      {uniq.map((p) => {
+      {(expanded ? uniq : uniq.slice(0, portPreviewLimit)).map((p) => {
         const pubPort = p.split(":")[0];
         return (
           <a key={p} href={`${location.protocol}//${location.hostname}:${pubPort}`} target="_blank" rel="noreferrer" className="chip">
@@ -186,6 +191,11 @@ export function Ports({ ports }: { ports: any[] }) {
           </a>
         );
       })}
+      {uniq.length > portPreviewLimit && (
+        <button type="button" className="chip port-toggle" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+          {expanded ? t("Свернуть") : tf("Ещё {0}", uniq.length - portPreviewLimit)}
+        </button>
+      )}
     </span>
   );
 }
